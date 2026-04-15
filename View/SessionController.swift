@@ -86,13 +86,7 @@ final class SessionController: NSObject {
 
     private func startFreshSession() throws {
         activeSessionID = try sessionStore.beginNewSession()
-        let controller = windowManager.openNewWindow(
-            initialURL: URL(string: "about:blank")!
-        )
-        try persistNewWindow(controller)
-        if let firstTab = controller.tabs.first {
-            try persistNewTab(firstTab, in: controller)
-        }
+        _ = windowManager.openNewWindow(initialURL: URL(string: "about:blank")!)
     }
 
     private func restoreSnapshot(_ snapshot: SessionSnapshot) throws {
@@ -222,8 +216,11 @@ extension SessionController: WindowManagerDelegate {
         _ manager: WindowManager,
         didOpenController controller: BrowserWindowController
     ) {
-        // New-window persistence is handled by the caller (startFreshSession / restoreSnapshot).
-        // This hook exists so Task 10 can extend it if needed.
+        guard controller.persistenceID == nil else { return }
+        try? persistNewWindow(controller)
+        for tab in controller.tabs where tab.persistenceID == nil {
+            try? persistNewTab(tab, in: controller)
+        }
     }
 
     func windowManager(
