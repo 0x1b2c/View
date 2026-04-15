@@ -19,7 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let sessionStore = try SessionStore(
                 fileURL: paths.sessionDatabase(profileId: profile.id))
 
-            let configuration = Self.makeConfiguration(profile: profile)
+            let configuration = Self.makeConfiguration(profile: profile, settings: settings)
             let controller = SessionController(
                 sessionStore: sessionStore,
                 settings: settings,
@@ -54,11 +54,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private static func makeConfiguration(profile: Profile) -> WKWebViewConfiguration {
+    private static func makeConfiguration(profile: Profile, settings: Settings)
+        -> WKWebViewConfiguration
+    {
         let config = WKWebViewConfiguration()
         if let uuid = UUID(uuidString: profile.dataStoreUUID) {
             config.websiteDataStore = WKWebsiteDataStore(forIdentifier: uuid)
         }
+
+        let userContent = WKUserContentController()
+        userContent.addUserScript(VimInjector.makeUserScript(settings: settings))
+        config.userContentController = userContent
+
         return config
     }
 }
