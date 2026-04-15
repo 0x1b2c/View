@@ -1,38 +1,200 @@
 import AppKit
 import WebKit
 
+protocol BrowserWindowControllerDelegate: AnyObject {
+    func browserWindow(_ controller: BrowserWindowController, didChangeTabs: Void)
+    func browserWindow(
+        _ controller: BrowserWindowController,
+        needsWebViewFor tab: Tab
+    ) -> WKWebView
+    func browserWindow(
+        _ controller: BrowserWindowController,
+        didActivateTab tab: Tab
+    )
+}
+
 final class BrowserWindowController: NSWindowController {
-    private let webView: WKWebView
+    static let tabsDidChangeNotification = Notification.Name(
+        "BrowserWindowController.tabsDidChange")
 
-    init(webViewConfiguration: WKWebViewConfiguration, initialURL: URL, zoom: Double) {
-        self.webView = WKWebView(frame: .zero, configuration: webViewConfiguration)
-        self.webView.pageZoom = CGFloat(zoom)
-        self.webView.translatesAutoresizingMaskIntoConstraints = false
+    weak var delegate: BrowserWindowControllerDelegate?
+    var persistenceID: Int64?
+    var zOrder: Int = 0
 
+    private(set) var tabs: [Tab] = []
+    private(set) var activeTabIndex: Int = -1
+
+    private let sidebar = TabSidebarView()
+    private let addressBar = AddressBarView()
+    private let container = WebContainerView()
+    private let splitView = NSSplitView()
+    private let rightStack = NSStackView()
+
+    init(initialFrame: NSRect) {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
+            contentRect: initialFrame,
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         window.title = "View"
-        window.center()
-
         super.init(window: window)
-
-        guard let contentView = window.contentView else { return }
-        contentView.addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-        ])
-
-        webView.load(URLRequest(url: initialURL))
+        setUpContentView()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setUpContentView() {
+        guard let contentView = window?.contentView else { return }
+
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.translatesAutoresizingMaskIntoConstraints = false
+
+        sidebar.delegate = self
+        addressBar.delegate = self
+
+        rightStack.orientation = .vertical
+        rightStack.spacing = 0
+        rightStack.alignment = .width
+        rightStack.distribution = .fill
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.addArrangedSubview(addressBar)
+        rightStack.addArrangedSubview(container)
+
+        splitView.addArrangedSubview(sidebar)
+        splitView.addArrangedSubview(rightStack)
+        splitView.setHoldingPriority(NSLayoutConstraint.Priority(250), forSubviewAt: 0)
+
+        contentView.addSubview(splitView)
+        NSLayoutConstraint.activate([
+            splitView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            splitView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            splitView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
+        ])
+        splitView.setPosition(200, ofDividerAt: 0)
+    }
+
+    // MARK: - Address bar API
+
+    func focusAddressBar() {
+        _ = addressBar.focus()
+    }
+
+    // MARK: - Tab management
+
+    func addTab(_ tab: Tab, activate: Bool) {
+        tabs.append(tab)
+        tab.onTitleChange = { [weak self] _ in
+            self?.refreshSidebar()
+        }
+        if activate {
+            setActiveTabIndex(tabs.count - 1)
+        }
+        refreshSidebar()
+        delegate?.browserWindow(self, didChangeTabs: ())
+    }
+
+    func removeTab(at index: Int) {
+        guard tabs.indices.contains(index) else { return }
+        let tab = tabs.remove(at: index)
+        tab.webView?.removeFromSuperview()
+        if tabs.isEmpty {
+            activeTabIndex = -1
+            container.setWebView(nil)
+            window?.performClose(nil)
+            return
+        }
+        if activeTabIndex >= tabs.count {
+            activeTabIndex = tabs.count - 1
+        }
+        for (i, t) in tabs.enumerated() { t.position = i }
+        refreshSidebar()
+        activateCurrent()
+        delegate?.browserWindow(self, didChangeTabs: ())
+    }
+
+    func reorderTab(from source: Int, to destination: Int) {
+        guard tabs.indices.contains(source) else { return }
+        let moved = tabs.remove(at: source)
+        let dest = min(destination, tabs.count)
+        tabs.insert(moved, at: dest)
+        for (i, t) in tabs.enumerated() { t.position = i }
+        if activeTabIndex == source {
+            activeTabIndex = dest
+        } else if source < activeTabIndex && dest >= activeTabIndex {
+            activeTabIndex -= 1
+        } else if source > activeTabIndex && dest <= activeTabIndex {
+            activeTabIndex += 1
+        }
+        refreshSidebar()
+        delegate?.browserWindow(self, didChangeTabs: ())
+    }
+
+    func setActiveTabIndex(_ index: Int) {
+        guard tabs.indices.contains(index) else { return }
+        activeTabIndex = index
+        activateCurrent()
+        sidebar.reloadTitles(tabs.map { $0.title ?? $0.url.absoluteString }, selectedIndex: index)
+    }
+
+    private func activateCurrent() {
+        guard tabs.indices.contains(activeTabIndex) else {
+            container.setWebView(nil)
+            addressBar.text = ""
+            return
+        }
+        let tab = tabs[activeTabIndex]
+        if tab.webView == nil, let delegate {
+            let webView = delegate.browserWindow(self, needsWebViewFor: tab)
+            tab.adopt(webView: webView)
+            webView.load(URLRequest(url: tab.url))
+        }
+        container.setWebView(tab.webView)
+        addressBar.text = tab.url.absoluteString
+        delegate?.browserWindow(self, didActivateTab: tab)
+    }
+
+    private func refreshSidebar() {
+        sidebar.reloadTitles(
+            tabs.map { $0.title ?? $0.url.absoluteString },
+            selectedIndex: activeTabIndex
+        )
+    }
+}
+
+extension BrowserWindowController: TabSidebarViewDelegate {
+    func sidebarDidSelectTab(at index: Int) {
+        setActiveTabIndex(index)
+    }
+
+    func sidebarDidRequestCloseTab(at index: Int) {
+        removeTab(at: index)
+    }
+
+    func sidebarDidReorderTab(from source: Int, to destination: Int) {
+        reorderTab(from: source, to: destination)
+    }
+}
+
+extension BrowserWindowController: AddressBarViewDelegate {
+    func addressBar(_ addressBar: AddressBarView, didSubmitURL url: URL) {
+        guard tabs.indices.contains(activeTabIndex) else { return }
+        let tab = tabs[activeTabIndex]
+        tab.url = url
+        if let webView = tab.webView {
+            webView.load(URLRequest(url: url))
+        } else if let delegate {
+            let webView = delegate.browserWindow(self, needsWebViewFor: tab)
+            tab.adopt(webView: webView)
+            container.setWebView(webView)
+            webView.load(URLRequest(url: url))
+        }
+        refreshSidebar()
+        NotificationCenter.default.post(name: Self.tabsDidChangeNotification, object: self)
     }
 }
