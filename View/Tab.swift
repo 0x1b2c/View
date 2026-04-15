@@ -8,6 +8,7 @@ final class Tab {
     var title: String?
     var webView: WKWebView?
     var position: Int
+    var favicon: NSImage?
 
     var navigationObserver: NSObject?
 

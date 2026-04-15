@@ -1,5 +1,10 @@
 import AppKit
 
+struct TabSidebarItem {
+    var title: String
+    var favicon: NSImage?
+}
+
 protocol TabSidebarViewDelegate: AnyObject {
     func sidebarDidSelectTab(at index: Int)
     func sidebarDidRequestCloseTab(at index: Int)
@@ -11,7 +16,7 @@ final class TabSidebarView: NSView {
 
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
-    private var titles: [String] = []
+    private var items: [TabSidebarItem] = []
 
     private let pasteboardType = NSPasteboard.PasteboardType("io.protoss.view.tabIndex")
     private var isProgrammaticallyUpdating = false
@@ -56,24 +61,15 @@ final class TabSidebarView: NSView {
         ])
     }
 
-    func reloadTitles(_ newTitles: [String], selectedIndex: Int) {
+    func reloadItems(_ newItems: [TabSidebarItem], selectedIndex: Int) {
         isProgrammaticallyUpdating = true
         defer { isProgrammaticallyUpdating = false }
-        titles = newTitles
+        items = newItems
         tableView.reloadData()
-        if selectedIndex >= 0 && selectedIndex < newTitles.count {
+        if selectedIndex >= 0 && selectedIndex < newItems.count {
             tableView.selectRowIndexes(
                 IndexSet(integer: selectedIndex), byExtendingSelection: false)
         }
-    }
-
-    func updateTitle(at index: Int, to title: String) {
-        guard index >= 0 && index < titles.count else { return }
-        titles[index] = title
-        tableView.reloadData(
-            forRowIndexes: IndexSet(integer: index),
-            columnIndexes: IndexSet(integer: 0)
-        )
     }
 
     @objc private func tableViewClicked() {
@@ -85,7 +81,7 @@ final class TabSidebarView: NSView {
 
 extension TabSidebarView: NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in tableView: NSTableView) -> Int {
-        titles.count
+        items.count
     }
 
     func tableView(
@@ -97,21 +93,40 @@ extension TabSidebarView: NSTableViewDataSource, NSTableViewDelegate {
         let cell =
             tableView.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView
             ?? Self.makeCell(identifier: identifier)
-        cell.textField?.stringValue = titles[row]
+        cell.textField?.stringValue = items[row].title
+        cell.imageView?.image = items[row].favicon ?? Self.placeholderImage
         return cell
     }
+
+    private static let placeholderImage: NSImage? = {
+        NSImage(
+            systemSymbolName: "globe",
+            accessibilityDescription: nil
+        )
+    }()
 
     private static func makeCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = identifier
+
+        let imageView = NSImageView()
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(imageView)
+        cell.imageView = imageView
 
         let textField = NSTextField(labelWithString: "")
         textField.lineBreakMode = .byTruncatingTail
         textField.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(textField)
         cell.textField = textField
+
         NSLayoutConstraint.activate([
-            textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+            imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+            imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 16),
+            imageView.heightAnchor.constraint(equalToConstant: 16),
+            textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
             textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
             textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])

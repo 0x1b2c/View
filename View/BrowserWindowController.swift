@@ -181,7 +181,7 @@ final class BrowserWindowController: NSWindowController {
         guard tabs.indices.contains(index) else { return }
         activeTabIndex = index
         activateCurrent()
-        sidebar.reloadTitles(tabs.map { $0.title ?? $0.url.absoluteString }, selectedIndex: index)
+        refreshSidebar()
         postTabsDidChange()
     }
 
@@ -243,10 +243,13 @@ final class BrowserWindowController: NSWindowController {
     }
 
     private func refreshSidebar() {
-        sidebar.reloadTitles(
-            tabs.map { $0.title ?? $0.url.absoluteString },
-            selectedIndex: activeTabIndex
-        )
+        let items = tabs.map { tab in
+            TabSidebarItem(
+                title: tab.title ?? tab.url.absoluteString,
+                favicon: tab.favicon
+            )
+        }
+        sidebar.reloadItems(items, selectedIndex: activeTabIndex)
     }
 }
 

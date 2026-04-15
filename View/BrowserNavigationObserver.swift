@@ -16,5 +16,11 @@ final class BrowserNavigationObserver: NSObject, WKNavigationDelegate {
         if let url = webView.url { tab.url = url }
         tab.title = webView.title
         owner.refreshAfterNavigation(tab: tab)
+
+        FaviconFetcher.shared.fetch(for: webView) { [weak tab, weak owner] image in
+            guard let tab, let owner, let image else { return }
+            tab.favicon = image
+            owner.refreshAfterNavigation(tab: tab)
+        }
     }
 }
