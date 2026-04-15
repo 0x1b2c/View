@@ -10,10 +10,11 @@
 - The script runs at `.atDocumentStart`, `forMainFrameOnly: false`. Injecting into every frame means `keydown` listeners exist wherever focus lands (main doc or same-origin iframe), and each frame's whitelist check runs against its own `location.hostname`, so embedded content decides for itself.
 - Configuration (whitelist, enabled flag) is templated into the JS source at bundle time via string substitution in Swift, so the script has no runtime bridge to Swift.
 - On every `keydown` (capture phase), the script:
-  1. Bails out if `event.ctrlKey || event.metaKey || event.altKey` — system shortcuts pass through untouched.
+  1. Bails out if `event.metaKey || event.altKey` — Cmd/Alt shortcuts always pass through untouched.
   2. Bails out if the current host matches the whitelist (exact match or dot-suffix match).
   3. Bails out if the event target is an editable element (`INPUT`, `TEXTAREA`, `SELECT`, or anything with `isContentEditable`).
-  4. Otherwise dispatches the keymap. On match, `preventDefault()` + `stopPropagation()`.
+  4. For `event.ctrlKey`: only `Ctrl-f` / `Ctrl-b` are intercepted (full-page down/up). Any other Ctrl-combo is passed through so system shortcuts like `Ctrl-\`` reach macOS unaffected. `Ctrl+Shift+*` always passes through.
+  5. Otherwise dispatches the unmodified keymap. On match, `preventDefault()` + `stopPropagation()`.
 - Keymap actions are plain JS: `window.scrollBy`, `window.scrollTo`, `history.back/forward`, `location.reload`. No native bridge needed.
 - `g` is a one-char prefix with a 1-second timeout (`gg` → scroll to top).
 
@@ -27,7 +28,7 @@
 - `Settings` is read once in `AppDelegate.applicationDidFinishLaunching` before `makeConfiguration` is called.
 
 **Design decisions (confirmed during brainstorming):**
-- **Keymap:** minimal only. `j/k` scroll down/up (~60px), `d/u` half-page down/up, `gg` top, `G` bottom, `H`/`L` history back/forward, `r` reload. No link hints, no page search, no visual mode. These are deferred.
+- **Keymap:** minimal only. `j/k` scroll down/up (~60px), `d/u` half-page down/up, `Ctrl-f` / `Ctrl-b` full-page down/up, `gg` top, `G` bottom, `H`/`L` history back/forward, `r` reload. No link hints, no page search, no visual mode. These are deferred.
 - **Whitelist reload:** startup only. No hot reload, no file watcher. Editing `settings.toml` requires an app restart.
 - **Testing:** manual only for Plan C. No Node/Bun/jsdom harness. Unit-testing a JS interception script that depends on `document`, `window`, `location`, and keyboard events is not worth the setup cost at this stage.
 - **Toggle UI:** none. `enabled` is edited in `settings.toml` by hand. No menu item, no preference pane.
@@ -318,6 +319,8 @@ In the first tab's address bar type `en.wikipedia.org/wiki/Vim_(text_editor)` an
 - Press `k` — scrolls up.
 - Press `d` — half-page down.
 - Press `u` — half-page up.
+- Press `Ctrl-f` — full-page (viewport) down.
+- Press `Ctrl-b` — full-page (viewport) up.
 - Press `G` (Shift+g) — jumps to the bottom.
 - Press `g` then `g` within 1 second — jumps to the top.
 - Press `g`, wait >1 second, press `g` — no jump happens. The first `g` prefix timed out and was cleared; the second `g` simply re-arms the prefix (silently), waiting for a follow-up key that never comes.
@@ -363,7 +366,7 @@ Quit the app. Edit `settings.toml` and add `"en.wikipedia.org"` to `whitelist`. 
 3. On any non-whitelisted page, `j/k/d/u/gg/G/H/L/r` behave as specified.
 4. On any whitelisted site (`mail.google.com`, `twitter.com`, `x.com`, `reddit.com`, `youtube.com` by default), the Vim script does not intercept any key.
 5. Typing into `<input>`, `<textarea>`, `<select>`, or a contenteditable element is never intercepted.
-6. No Vim-layer interception ever fires for events carrying `Ctrl`, `Cmd`, or `Alt` modifiers.
+6. No Vim-layer interception ever fires for events carrying `Cmd` or `Alt` modifiers. `Ctrl` is only intercepted for `Ctrl-f` and `Ctrl-b`; all other `Ctrl-*` combos (including `Ctrl-\``) pass through to the system.
 7. Setting `[vim].enabled = false` in `settings.toml` disables the layer globally on next launch.
 8. No `NSEvent` monitors, no native-layer key handling, no message-handler bridge — implementation is JS-only.
 
