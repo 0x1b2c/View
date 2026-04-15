@@ -61,6 +61,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    private static func makeColorSchemeScript() -> WKUserScript {
+        let source = """
+            (function () {
+              var style = document.createElement('style');
+              style.textContent = ':root { color-scheme: light dark }';
+              (document.head || document.documentElement).appendChild(style);
+            })();
+            """
+        return WKUserScript(
+            source: source,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+    }
+
     private static func makeConfiguration(profile: Profile, settings: Settings)
         -> WKWebViewConfiguration
     {
@@ -71,6 +86,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let userContent = WKUserContentController()
         userContent.addUserScript(VimInjector.makeUserScript(settings: settings))
+        userContent.addUserScript(Self.makeColorSchemeScript())
         userContent.add(ScrollMessageHandler(), name: ScrollMessageHandler.name)
         config.userContentController = userContent
 
