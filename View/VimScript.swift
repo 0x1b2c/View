@@ -125,8 +125,11 @@ enum VimScript {
               return;
             }
 
-            if (WHITELISTED) return;
             if (event.key.length !== 1 && event.key !== 'g') return;
+            if (WHITELISTED && event.key !== 'g' && event.key !== 'G') {
+              clearPrefix();
+              return;
+            }
 
             const handled = dispatch(event.key, event);
             if (handled) {

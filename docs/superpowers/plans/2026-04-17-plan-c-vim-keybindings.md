@@ -13,7 +13,7 @@
   1. Bails out if `event.metaKey || event.altKey` — Cmd/Alt shortcuts always pass through untouched.
   2. Bails out if the event target is an editable element (`INPUT`, `TEXTAREA`, `SELECT`, or anything with `isContentEditable`).
   3. For `event.ctrlKey`: only `Ctrl-f` / `Ctrl-b` are intercepted (full-page down/up), **regardless of whitelist**. Any other Ctrl-combo is passed through so system shortcuts like `Ctrl-\`` reach macOS unaffected. `Ctrl+Shift+*` always passes through.
-  4. For unmodified keys: if the current host is on the whitelist, bail out (let the site handle its own j/k/etc). Otherwise dispatch the unmodified keymap; on match, `preventDefault()` + `stopPropagation()`.
+  4. For unmodified keys: `g`/`G` (jump to top/bottom) always run, regardless of whitelist — they're rare enough that colliding with a site's own shortcut is acceptable, and jumping to page extremes is useful on any long feed. For the remaining unmodified keys (`j/k/d/u/H/L/r`), bail out on whitelisted hosts; on non-whitelisted hosts dispatch the keymap and `preventDefault()` + `stopPropagation()` on match.
 - Keymap actions are plain JS: `window.scrollBy`, `window.scrollTo`, `history.back/forward`, `location.reload`. No native bridge needed.
 - `g` is a one-char prefix with a 1-second timeout (`gg` → scroll to top).
 
@@ -338,6 +338,8 @@ Open a new tab (Cmd-T) and navigate to `mail.google.com`. Sign in if necessary. 
 
 Now on the same whitelisted page press `Ctrl-f` and `Ctrl-b`. Expected: the Vim layer scrolls the page one viewport at a time. Whitelist must **not** disable `Ctrl-f`/`Ctrl-b` — these bindings run on every site because Ctrl-prefixed keys don't collide with web-app shortcuts.
 
+Still on the whitelisted page, press `G` — expected jump to the bottom of the page. Press `gg` — expected jump to the top. `g`/`G` are also forced active on every site for parity with page extremes navigation.
+
 - [ ] **Step 4.5: Modifier keys — system shortcuts still work**
 
 With a non-whitelisted page focused:
@@ -365,7 +367,7 @@ Quit the app. Edit `settings.toml` and add `"en.wikipedia.org"` to `whitelist`. 
 2. Plan B unit tests still pass: `make test-core`.
 3. Plan B regression sanity: Cmd-T, Cmd-N, Cmd-W, tab switching, drag reorder, and session restore still work after the `makeConfiguration` signature change (touched once in `AppDelegate`; verified during Task 4 manual run).
 3. On any non-whitelisted page, `j/k/d/u/gg/G/H/L/r` behave as specified.
-4. On any whitelisted site (`mail.google.com`, `twitter.com`, `x.com`, `reddit.com`, `youtube.com` by default), the Vim script does not intercept **unmodified** keys (j/k/d/u/g/G/H/L/r). `Ctrl-f` and `Ctrl-b` remain active on whitelisted sites because Ctrl-prefixed keys don't collide with web-app shortcuts.
+4. On any whitelisted site (`mail.google.com`, `twitter.com`, `x.com`, `reddit.com`, `youtube.com` by default), the Vim script does not intercept `j/k/d/u/H/L/r`. `Ctrl-f`, `Ctrl-b`, `gg`, and `G` remain active on whitelisted sites — Ctrl-prefixed keys don't collide with web-app shortcuts, and page-extreme navigation is useful everywhere.
 5. Typing into `<input>`, `<textarea>`, `<select>`, or a contenteditable element is never intercepted.
 6. No Vim-layer interception ever fires for events carrying `Cmd` or `Alt` modifiers. `Ctrl` is only intercepted for `Ctrl-f` and `Ctrl-b`; all other `Ctrl-*` combos (including `Ctrl-\``) pass through to the system.
 7. Setting `[vim].enabled = false` in `settings.toml` disables the layer globally on next launch.
