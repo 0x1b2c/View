@@ -38,6 +38,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        sessionController?.prepareForTermination()
+        return .terminateNow
+    }
+
     func applicationWillTerminate(_ aNotification: Notification) {
         sessionController?.quit()
     }

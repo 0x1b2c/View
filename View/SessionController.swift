@@ -10,6 +10,7 @@ final class SessionController: NSObject {
     private var restorationQueue: RestorationQueue!
 
     private var activeSessionID: Int64 = 0
+    private var isTerminating = false
 
     init(
         sessionStore: SessionStore,
@@ -73,6 +74,10 @@ final class SessionController: NSObject {
         case .blank:
             try startFreshSession()
         }
+    }
+
+    func prepareForTermination() {
+        isTerminating = true
     }
 
     func quit() {
@@ -225,6 +230,7 @@ extension SessionController: WindowManagerDelegate {
         _ manager: WindowManager,
         didCloseController controller: BrowserWindowController
     ) {
+        guard !isTerminating else { return }
         guard let id = controller.persistenceID else { return }
         try? sessionStore.deleteWindow(id: id)
     }
