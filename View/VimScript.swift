@@ -51,12 +51,18 @@ enum VimScript {
             return Math.max(100, Math.floor(window.innerHeight / 2));
           }
 
+          function postScroll(where_) {
+            try {
+              webkit.messageHandlers.viewScroll.postMessage(where_);
+            } catch (e) {}
+          }
+
           function dispatch(key, event) {
             // Two-char sequences beginning with 'g'.
             if (prefix === 'g') {
               clearPrefix();
               if (key === 'g') {
-                window.scrollTo({ top: 0, behavior: 'auto' });
+                postScroll('top');
                 return true;
               }
               return false;
@@ -79,7 +85,7 @@ enum VimScript {
                 armPrefix('g');
                 return true;
               case 'G':
-                window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+                postScroll('bottom');
                 return true;
               case 'H':
                 history.back();

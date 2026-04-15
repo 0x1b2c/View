@@ -5,17 +5,18 @@
 **Goal:** Add a minimal Vim-style keymap that operates on web content via an injected `WKUserScript`. Users on non-whitelisted pages can scroll and navigate with familiar Vim keys. Whitelisted sites (Gmail, Twitter, etc.) receive zero interception so their own `j`/`k` shortcuts continue to work.
 
 **Architecture:**
-- Pure JS interception. No `NSEvent` local monitors, no native key handling, no message handler round trips for navigation actions.
+- Hybrid: unmodified Vim keys run in a `WKUserScript`; `Ctrl-f`/`Ctrl-b` are bound at the AppKit layer; `gg`/`G` are detected in JS but dispatched to native scroll via a `WKScriptMessageHandler` bridge. The reason: only the native scroll path (`NSResponder.scrollPageDown:` / `scrollPageUp:` / `scrollToBeginningOfDocument:` / `scrollToEndOfDocument:`) produces the same smooth animation as Space / Shift-Space / Cmd-↑ / Cmd-↓. A JS `window.scrollBy({ behavior: 'smooth' })` is visibly different from the native path, and the user explicitly wants parity.
 - A single `WKUserScript` is installed on the `WKUserContentController` of the shared `WKWebViewConfiguration` at app start. Every tab's WebView inherits it.
 - The script runs at `.atDocumentStart`, `forMainFrameOnly: false`. Injecting into every frame means `keydown` listeners exist wherever focus lands (main doc or same-origin iframe), and each frame's whitelist check runs against its own `location.hostname`, so embedded content decides for itself.
-- Configuration (whitelist, enabled flag) is templated into the JS source at bundle time via string substitution in Swift, so the script has no runtime bridge to Swift.
-- On every `keydown` (capture phase), the script:
-  1. Bails out if `event.metaKey || event.altKey` — Cmd/Alt shortcuts always pass through untouched.
+- Whitelist and enabled flag are templated into the JS source at startup via string substitution in Swift. No runtime settings bridge.
+- On every `keydown` (capture phase), the JS script:
+  1. Bails out if `event.ctrlKey || event.metaKey || event.altKey` — modifier-bearing keys always pass through untouched. `Ctrl-f`/`Ctrl-b` are handled natively (see below), `Ctrl-\`` reaches macOS, Cmd-shortcuts reach NSMenu.
   2. Bails out if the event target is an editable element (`INPUT`, `TEXTAREA`, `SELECT`, or anything with `isContentEditable`).
-  3. For `event.ctrlKey`: only `Ctrl-f` / `Ctrl-b` are intercepted (full-page down/up), **regardless of whitelist**. Any other Ctrl-combo is passed through so system shortcuts like `Ctrl-\`` reach macOS unaffected. `Ctrl+Shift+*` always passes through.
-  4. For unmodified keys: `g`/`G` (jump to top/bottom) always run, regardless of whitelist — they're rare enough that colliding with a site's own shortcut is acceptable, and jumping to page extremes is useful on any long feed. For the remaining unmodified keys (`j/k/d/u/H/L/r`), bail out on whitelisted hosts; on non-whitelisted hosts dispatch the keymap and `preventDefault()` + `stopPropagation()` on match.
-- Keymap actions are plain JS: `window.scrollBy`, `window.scrollTo`, `history.back/forward`, `location.reload`. No native bridge needed.
-- `g` is a one-char prefix with a 1-second timeout (`gg` → scroll to top).
+  3. `g`/`G` (jump to top/bottom) always run regardless of whitelist — they're forced-active because page-extreme navigation is useful everywhere and the keys rarely collide. Dispatch goes through `webkit.messageHandlers.viewScroll.postMessage('top' | 'bottom')` so the native side drives the actual scroll.
+  4. For the remaining unmodified keys (`j/k/d/u/H/L/r`), bail out on whitelisted hosts; on non-whitelisted hosts dispatch the keymap and `preventDefault()` + `stopPropagation()` on match.
+- At the AppKit layer, a single app-wide `NSEvent.addLocalMonitorForEvents(matching: .keyDown)` monitor intercepts `Ctrl-f` and `Ctrl-b` **only when the key window's first responder is a `WKWebView`**. On match it calls `NSApp.sendAction(#selector(NSResponder.scrollPageDown(_:)))` / `scrollPageUp(_:)` and swallows the event (returns `nil`). When focus is in the address bar (an `NSTextField`), the monitor passes the event through so native emacs-style cursor nav still works in the URL bar.
+- JS-side actions that do NOT need native parity (`scrollBy` for j/k/d/u, `history.back/forward` for H/L, `location.reload` for r) stay in JS — their visual feel is fine as-is.
+- `g` is a one-char prefix with a 1-second timeout (`gg` → message the native layer to scroll to top).
 
 **Tech Stack:** Swift 5.9+, WebKit (WKUserScript, WKUserContentController), JavaScript (plain, no bundler).
 
@@ -27,7 +28,8 @@
 - `Settings` is read once in `AppDelegate.applicationDidFinishLaunching` before `makeConfiguration` is called.
 
 **Design decisions (confirmed during brainstorming):**
-- **Keymap:** minimal only. `j/k` scroll down/up (~60px), `d/u` half-page down/up, `Ctrl-f` / `Ctrl-b` full-page down/up, `gg` top, `G` bottom, `H`/`L` history back/forward, `r` reload. No link hints, no page search, no visual mode. These are deferred.
+- **Keymap:** minimal only. `j/k` scroll down/up (~60px, JS), `d/u` half-page down/up (JS), `Ctrl-f`/`Ctrl-b` full-page down/up (native `scrollPageDown:`/`scrollPageUp:`), `gg` top / `G` bottom (JS→native via `scrollToBeginningOfDocument:`/`scrollToEndOfDocument:`), `H`/`L` history back/forward (JS), `r` reload (JS). No link hints, no page search, no visual mode. These are deferred.
+- **Scroll parity with Space / Shift-Space / Cmd-↑/↓:** full-page and page-extreme scrolling goes through the native scroll path so it animates identically to the system keys. Small scrolls (`j/k/d/u`) stay in JS because there's no visual parity concern at 60–400 px increments. This is a deliberate "JS + thin native bridge" design rather than pure-JS.
 - **Whitelist reload:** startup only. No hot reload, no file watcher. Editing `settings.toml` requires an app restart.
 - **Testing:** manual only for Plan C. No Node/Bun/jsdom harness. Unit-testing a JS interception script that depends on `document`, `window`, `location`, and keyboard events is not worth the setup cost at this stage.
 - **Toggle UI:** none. `enabled` is edited in `settings.toml` by hand. No menu item, no preference pane.
@@ -39,15 +41,19 @@
 
 ```
 View/
-├── VimInjector.swift            (new: builds the WKUserScript from template + settings)
 ├── VimScript.swift              (new: Swift string literal holding the JS template)
-└── AppDelegate.swift            (modified: install user script in makeConfiguration)
+├── VimInjector.swift            (new: builds the WKUserScript from template + settings)
+├── NativeKeyBindings.swift      (new: NSEvent monitor for Ctrl-f / Ctrl-b → native scroll)
+├── ScrollMessageHandler.swift   (new: WKScriptMessageHandler for gg / G → native scroll)
+└── AppDelegate.swift            (modified: install user script, message handler, key monitor)
 ```
 
 **Responsibilities:**
 - **`VimScript`**: a Swift `enum` (namespace) exposing a single `static let template: String` constant containing the full JS source. The template has two placeholder tokens that `VimInjector` replaces: `__VIM_WHITELIST_JSON__` (a JSON array of hostnames) and `__VIM_ENABLED__` (`true` or `false`). The JS is stored as a Swift string literal — not a resource file — to avoid Xcode resource-bundling and path-loading concerns.
-- **`VimInjector`**: `static func makeUserScript(settings: Settings) -> WKUserScript`. Serializes the whitelist to JSON, performs string replacement on the template, and returns a `WKUserScript(source:injectionTime:.atDocumentStart, forMainFrameOnly: true)`.
-- **`AppDelegate.makeConfiguration`**: takes a new `settings: Settings` parameter, builds a `WKUserContentController`, calls `VimInjector.makeUserScript(settings:)`, adds it, and assigns the controller to the configuration.
+- **`VimInjector`**: `static func makeUserScript(settings: Settings) -> WKUserScript`. Serializes the whitelist to JSON, performs string replacement on the template, and returns a `WKUserScript(source:injectionTime:.atDocumentStart, forMainFrameOnly: false)`.
+- **`NativeKeyBindings`**: `static func install() -> Any` installs an `NSEvent` local key-down monitor. The monitor intercepts `Ctrl-f` / `Ctrl-b` when the key window's first responder is a `WKWebView`, dispatches `scrollPageDown:` / `scrollPageUp:` through the responder chain via `NSApp.sendAction`, and swallows the event. Returns the opaque monitor token so the caller can retain it for the app's lifetime.
+- **`ScrollMessageHandler`**: a `WKScriptMessageHandler` subclass that receives `"top"` / `"bottom"` messages from the JS layer and dispatches `scrollToBeginningOfDocument:` / `scrollToEndOfDocument:` through the responder chain. Registered on the shared `WKUserContentController` under the name `viewScroll`.
+- **`AppDelegate`**: in `applicationWillFinishLaunching`, installs the main menu and the `NativeKeyBindings` monitor, retaining the monitor token on `keyMonitor: Any?`. In `makeConfiguration(profile:settings:)`, builds a `WKUserContentController`, adds the Vim user script and a fresh `ScrollMessageHandler` under name `viewScroll`, and assigns the controller to the shared configuration.
 
 ---
 
@@ -371,7 +377,8 @@ Quit the app. Edit `settings.toml` and add `"en.wikipedia.org"` to `whitelist`. 
 5. Typing into `<input>`, `<textarea>`, `<select>`, or a contenteditable element is never intercepted.
 6. No Vim-layer interception ever fires for events carrying `Cmd` or `Alt` modifiers. `Ctrl` is only intercepted for `Ctrl-f` and `Ctrl-b`; all other `Ctrl-*` combos (including `Ctrl-\``) pass through to the system.
 7. Setting `[vim].enabled = false` in `settings.toml` disables the layer globally on next launch.
-8. No `NSEvent` monitors, no native-layer key handling, no message-handler bridge — implementation is JS-only.
+8. `Ctrl-f`/`Ctrl-b` and `gg`/`G` scroll with the **native** animation (same as Space / Shift-Space / Cmd-↑ / Cmd-↓), not with a JS-driven `behavior: 'smooth'` curve.
+9. `Ctrl-f`/`Ctrl-b` pass through to text editing when the address bar is focused (so standard Mac emacs-style cursor nav in the URL field still works).
 
 ---
 

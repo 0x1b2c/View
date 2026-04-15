@@ -66,6 +66,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let userContent = WKUserContentController()
         userContent.addUserScript(VimInjector.makeUserScript(settings: settings))
+        userContent.add(ScrollMessageHandler(), name: ScrollMessageHandler.name)
         config.userContentController = userContent
 
         return config
