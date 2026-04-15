@@ -69,6 +69,7 @@ final class WindowManager: NSObject, BrowserWindowControllerDelegate {
         controller.delegate = self
         controllers.append(controller)
 
+        controller.beginRestoring()
         var activeIndex = 0
         for (i, restored) in restoredTabs.enumerated() {
             let tab = Tab(
@@ -80,6 +81,7 @@ final class WindowManager: NSObject, BrowserWindowControllerDelegate {
             controller.addTab(tab, activate: false)
             if restored.isActive { activeIndex = i }
         }
+        controller.endRestoring()
         if !restoredTabs.isEmpty {
             controller.setActiveTabIndex(activeIndex)
         }

@@ -31,6 +31,7 @@ final class BrowserWindowController: NSWindowController {
     private let rightStack = NSStackView()
 
     private var progressObservation: NSKeyValueObservation?
+    private var isRestoring = false
 
     init(initialFrame: NSRect) {
         let window = SilentBrowserWindow(
@@ -248,7 +249,16 @@ final class BrowserWindowController: NSWindowController {
         webView.navigationDelegate = observer
     }
 
+    func beginRestoring() {
+        isRestoring = true
+    }
+
+    func endRestoring() {
+        isRestoring = false
+    }
+
     private func postTabsDidChange() {
+        guard !isRestoring else { return }
         NotificationCenter.default.post(name: Self.tabsDidChangeNotification, object: self)
     }
 
