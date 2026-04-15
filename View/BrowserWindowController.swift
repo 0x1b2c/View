@@ -31,7 +31,7 @@ final class BrowserWindowController: NSWindowController {
     private let rightStack = NSStackView()
 
     init(initialFrame: NSRect) {
-        let window = NSWindow(
+        let window = SilentBrowserWindow(
             contentRect: initialFrame,
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
