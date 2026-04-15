@@ -85,6 +85,16 @@ final class BrowserWindowController: NSWindowController {
         _ = addressBar.focus()
     }
 
+    @IBAction func newTab(_ sender: Any?) {
+        let tab = Tab(url: URL(string: "about:blank")!, position: tabs.count)
+        addTab(tab, activate: true)
+        focusAddressBar()
+    }
+
+    @IBAction func openLocation(_ sender: Any?) {
+        focusAddressBar()
+    }
+
     // MARK: - Tab management
 
     func addTab(_ tab: Tab, activate: Bool) {

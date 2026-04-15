@@ -70,6 +70,22 @@ enum MainMenuBuilder {
     private static func makeFileMenu() -> NSMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(
+            withTitle: "New Window",
+            action: Selector(("newDocument:")),
+            keyEquivalent: "n"
+        )
+        menu.addItem(
+            withTitle: "New Tab",
+            action: Selector(("newTab:")),
+            keyEquivalent: "t"
+        )
+        menu.addItem(
+            withTitle: "Open Location…",
+            action: Selector(("openLocation:")),
+            keyEquivalent: "l"
+        )
+        menu.addItem(.separator())
+        menu.addItem(
             withTitle: "Close Window",
             action: #selector(NSWindow.performClose(_:)),
             keyEquivalent: "w"

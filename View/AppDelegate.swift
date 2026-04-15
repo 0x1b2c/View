@@ -48,6 +48,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    @IBAction func newDocument(_ sender: Any?) {
+        sessionController?.manager.openNewWindow(
+            initialURL: URL(string: "about:blank")!
+        )
+    }
+
     private static func makeConfiguration(profile: Profile) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         if let uuid = UUID(uuidString: profile.dataStoreUUID) {
