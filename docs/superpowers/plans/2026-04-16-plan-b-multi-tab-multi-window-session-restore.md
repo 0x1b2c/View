@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn the Plan A walking skeleton into a real multi-tab, multi-window browser with session persistence. After Plan B the user can open multiple windows, each with a vertical tab sidebar, create and close tabs, reorder them, and have every window + tab restored across app launches. Lazy restoration keeps startup cheap even with many tabs.
+**Goal:** Turn the Plan A walking skeleton into a real multi-tab, multi-window browser with session persistence. After Plan B the user can open multiple windows, each with a vertical tab sidebar, create and close tabs, reorder them, type a URL in a minimal address bar, and have every window + tab restored across app launches. Lazy restoration keeps startup cheap even with many tabs.
 
 **Architecture:**
 - App-layer `Tab` owns a URL, title, optional `WKWebView` (nil means unloaded), and an optional persistence id.
-- `BrowserWindowController` owns an array of `Tab`s, a `TabSidebarView` (left), a `WebContainerView` (right), and the index of the currently active tab.
+- `BrowserWindowController` owns an array of `Tab`s, a `TabSidebarView` (left), an `AddressBarView` (top-right), a `WebContainerView` (bottom-right), and the index of the currently active tab.
 - `WindowManager` owns all `BrowserWindowController`s, handles Cmd-N, tracks z_order.
 - `RestorationQueue` is a serial worker that promotes unloaded tabs one at a time, triggered by each previous tab's `didFinish`.
 - `SessionController` glues events to persistence: it listens to tab/window mutations and writes through `SessionStore` immediately (no debounce, no timer). On launch it reads the latest session and asks `WindowManager` to rebuild it.
@@ -27,7 +27,8 @@
 **Design decisions (confirmed during brainstorming):**
 - TabSidebar implementation: pure AppKit `NSTableView`, no SwiftUI.
 - Cmd-N opens a new window with one blank tab (`about:blank`).
-- Cmd-T creates an `about:blank` tab. No configurable "new tab page" in MVP.
+- Cmd-T creates an `about:blank` tab **and focuses the address bar** so the user can immediately type a URL. Cmd-L focuses the address bar of the current tab without creating a new one.
+- Address bar is intentionally minimal: one `NSTextField`, enter submits. No autocomplete, no history suggestions, no reload/back/forward buttons, no SSL indicator. Submission parses the input: if it contains `://` it's treated as a URL; otherwise `https://` is prepended. No search-engine fallback.
 - On restore, the front-most window is determined by lowest `z_order`.
 - Session saves are **event-driven**, one write per discrete event. Use `NSWindowDidEndLiveResize` / `NSWindowDidMove` so geometry saves are one-shot per interaction.
 - Restoration is lazy: every non-active tab starts as unloaded (no WKWebView). A global serial restoration queue promotes them one at a time triggered by the previous tab's `didFinish`. User clicks on an unloaded tab promote out-of-order.
@@ -49,8 +50,9 @@ Packages/ViewCore/
 View/
 ├── Tab.swift                           (new: app-layer tab model)
 ├── TabSidebarView.swift                (new: NSTableView-based vertical tab list)
+├── AddressBarView.swift                (new: NSTextField URL input, Enter submits)
 ├── WebContainerView.swift              (new: NSView hosting the active tab's WKWebView)
-├── BrowserWindowController.swift       (rewritten: owns tabs, sidebar, container)
+├── BrowserWindowController.swift       (rewritten: owns tabs, sidebar, address bar, container)
 ├── WindowManager.swift                 (new: tracks all windows, handles new window)
 ├── RestorationQueue.swift              (new: serial promotion worker)
 ├── SessionController.swift             (new: bridge events ↔ SessionStore)
@@ -63,8 +65,9 @@ View/
 - **`SessionStore` (extended)**: `loadLatestSnapshot() throws -> SessionSnapshot?`, `beginNewSession() throws -> Int64`, `archiveActiveSession() throws`, `saveWindow(_:sessionID:)`, `saveTab(_:windowID:)`, `deleteWindow(id:)`, `deleteTab(id:)`, `updateTab(...)` etc. All methods are synchronous and thread-safe via GRDB's `write { db in ... }` blocks.
 - **`Tab`** (app layer): class holding `persistenceID: Int64?`, `url: URL`, `title: String?`, `webView: WKWebView?`, `position: Int`, `onStateChange: (() -> Void)?`. `isLoaded` is `webView != nil`.
 - **`TabSidebarView`**: `NSTableView` with one column, custom cell view showing the title. Selection drives `onSelectTab(index)`. Close button per row (hover-revealed) drives `onCloseTab(index)`. Drag reorder drives `onReorderTab(from:to:)`.
+- **`AddressBarView`**: `NSView` containing an `NSTextField`. On Enter, parses the text into a URL (prepends `https://` if scheme missing) and fires `onSubmit(url)`. Exposes `text: String` for programmatic update (when active tab changes or navigation finishes) and `focus()` to make the text field first responder.
 - **`WebContainerView`**: `NSView` that holds at most one `WKWebView` child filling its bounds. `setWebView(_:)` swaps the child.
-- **`BrowserWindowController`**: owns `tabs: [Tab]`, `activeTabIndex: Int`, constructs a split view with `TabSidebarView` on the left and `WebContainerView` on the right, wires sidebar callbacks, reacts to `activeTabIndex` changes by calling `webContainer.setWebView(tabs[activeTabIndex].webView)` (creating the webView on demand if the active tab is unloaded).
+- **`BrowserWindowController`**: owns `tabs: [Tab]`, `activeTabIndex: Int`, constructs a split view with `TabSidebarView` on the left and a vertical `NSStackView` on the right containing `AddressBarView` (top) + `WebContainerView` (bottom). Wires sidebar and address-bar callbacks. Reacts to `activeTabIndex` changes by swapping the container's WebView and updating the address bar text. Creating the WebView on demand for unloaded active tabs.
 - **`WindowManager`**: singleton-ish class held by AppDelegate. Owns `controllers: [BrowserWindowController]`. `openNewWindow(initialURL:)`, `openRestoredWindow(from: WindowRow, tabs: [TabRow])`, `closeWindow(_:)`. Observes `NSWindow.didBecomeKeyNotification` to update z_order.
 - **`RestorationQueue`**: a worker that holds `pendingTabs: [Tab]` and promotes them one at a time. Each promotion creates the `WKWebView`, calls `load`, and registers a one-shot `didFinish` observer to trigger the next. User clicks on an unloaded tab cause `promoteNow(_:)` which removes from queue and promotes immediately.
 - **`SessionController`**: owns a `SessionStore` reference and listens to window/tab lifecycle notifications (published by `WindowManager` and `BrowserWindowController`). Each notification triggers a synchronous write. On launch, reads the latest snapshot and hands it to `WindowManager` for restoration.
@@ -697,7 +700,105 @@ git commit -m "Add TabSidebarView (NSTableView with drag reorder)"
 
 ---
 
-## Task 5: Rewrite `BrowserWindowController`
+## Task 5: Create `AddressBarView`
+
+A minimal `NSTextField` that accepts a URL, normalizes it (prepends `https://` if no scheme), and calls back on submission. Also exposes programmatic setter and focus.
+
+**Files:**
+- Create: `View/AddressBarView.swift`
+
+- [ ] **Step 5.1: Write `AddressBarView.swift`**
+
+```swift
+import AppKit
+
+protocol AddressBarViewDelegate: AnyObject {
+    func addressBar(_ addressBar: AddressBarView, didSubmitURL url: URL)
+}
+
+final class AddressBarView: NSView {
+    weak var delegate: AddressBarViewDelegate?
+
+    private let textField = NSTextField()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setUp()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setUp() {
+        translatesAutoresizingMaskIntoConstraints = false
+
+        textField.placeholderString = "Enter URL"
+        textField.bezelStyle = .roundedBezel
+        textField.focusRingType = .none
+        textField.lineBreakMode = .byTruncatingTail
+        textField.delegate = self
+        textField.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(textField)
+        NSLayoutConstraint.activate([
+            textField.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+        ])
+    }
+
+    var text: String {
+        get { textField.stringValue }
+        set { textField.stringValue = newValue }
+    }
+
+    @discardableResult
+    func focus() -> Bool {
+        window?.makeFirstResponder(textField) ?? false
+    }
+
+    fileprivate func submit() {
+        let raw = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        let normalized = Self.normalize(raw)
+        guard let url = URL(string: normalized) else { return }
+        delegate?.addressBar(self, didSubmitURL: url)
+    }
+
+    static func normalize(_ input: String) -> String {
+        if input.contains("://") { return input }
+        return "https://\(input)"
+    }
+}
+
+extension AddressBarView: NSTextFieldDelegate {
+    func control(
+        _ control: NSControl,
+        textView: NSTextView,
+        doCommandBy commandSelector: Selector
+    ) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            submit()
+            return true
+        }
+        return false
+    }
+}
+```
+
+- [ ] **Step 5.2: Build and commit**
+
+```bash
+make fmt && make debug 2>&1 | tail -5
+git add View/AddressBarView.swift
+git commit -m "Add minimal AddressBarView with URL submission"
+```
+
+---
+
+## Task 6: Rewrite `BrowserWindowController` with Address Bar
 
 The new controller owns a tab array, a sidebar, and a container, and exposes the operations needed by `WindowManager` and `SessionController`.
 
@@ -723,6 +824,8 @@ protocol BrowserWindowControllerDelegate: AnyObject {
 }
 
 final class BrowserWindowController: NSWindowController {
+    static let tabsDidChangeNotification = Notification.Name("BrowserWindowController.tabsDidChange")
+
     weak var delegate: BrowserWindowControllerDelegate?
     var persistenceID: Int64?
     var zOrder: Int = 0
@@ -731,8 +834,10 @@ final class BrowserWindowController: NSWindowController {
     private(set) var activeTabIndex: Int = -1
 
     private let sidebar = TabSidebarView()
+    private let addressBar = AddressBarView()
     private let container = WebContainerView()
     private let splitView = NSSplitView()
+    private let rightStack = NSStackView()
 
     init(initialFrame: NSRect) {
         let window = NSWindow(
@@ -758,8 +863,18 @@ final class BrowserWindowController: NSWindowController {
         splitView.translatesAutoresizingMaskIntoConstraints = false
 
         sidebar.delegate = self
+        addressBar.delegate = self
+
+        rightStack.orientation = .vertical
+        rightStack.spacing = 0
+        rightStack.alignment = .width
+        rightStack.distribution = .fill
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.addArrangedSubview(addressBar)
+        rightStack.addArrangedSubview(container)
+
         splitView.addArrangedSubview(sidebar)
-        splitView.addArrangedSubview(container)
+        splitView.addArrangedSubview(rightStack)
         splitView.setHoldingPriority(NSLayoutConstraint.Priority(250), forSubviewAt: 0)
 
         contentView.addSubview(splitView)
@@ -771,6 +886,12 @@ final class BrowserWindowController: NSWindowController {
             sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
         ])
         splitView.setPosition(200, ofDividerAt: 0)
+    }
+
+    // MARK: - Address bar API
+
+    func focusAddressBar() {
+        _ = addressBar.focus()
     }
 
     // MARK: - Tab management
@@ -833,6 +954,7 @@ final class BrowserWindowController: NSWindowController {
     private func activateCurrent() {
         guard tabs.indices.contains(activeTabIndex) else {
             container.setWebView(nil)
+            addressBar.text = ""
             return
         }
         let tab = tabs[activeTabIndex]
@@ -842,6 +964,7 @@ final class BrowserWindowController: NSWindowController {
             webView.load(URLRequest(url: tab.url))
         }
         container.setWebView(tab.webView)
+        addressBar.text = tab.url.absoluteString
         delegate?.browserWindow(self, didActivateTab: tab)
     }
 
@@ -866,6 +989,24 @@ extension BrowserWindowController: TabSidebarViewDelegate {
         reorderTab(from: source, to: destination)
     }
 }
+
+extension BrowserWindowController: AddressBarViewDelegate {
+    func addressBar(_ addressBar: AddressBarView, didSubmitURL url: URL) {
+        guard tabs.indices.contains(activeTabIndex) else { return }
+        let tab = tabs[activeTabIndex]
+        tab.url = url
+        if let webView = tab.webView {
+            webView.load(URLRequest(url: url))
+        } else if let delegate {
+            let webView = delegate.browserWindow(self, needsWebViewFor: tab)
+            tab.adopt(webView: webView)
+            container.setWebView(webView)
+            webView.load(URLRequest(url: url))
+        }
+        refreshSidebar()
+        NotificationCenter.default.post(name: Self.tabsDidChangeNotification, object: self)
+    }
+}
 ```
 
 - [ ] **Step 5.2: Build**
@@ -874,7 +1015,7 @@ extension BrowserWindowController: TabSidebarViewDelegate {
 make fmt && make debug 2>&1 | tail -15
 ```
 
-Note: `AppDelegate` will not yet compile because it uses the old `BrowserWindowController(webViewConfiguration:initialURL:zoom:)` init. Task 10 rewrites `AppDelegate`. For this task, update `AppDelegate` to a stub that keeps the app compiling but does nothing useful yet. See Step 5.3.
+Note: `AppDelegate` will not yet compile because it uses the old `BrowserWindowController(webViewConfiguration:initialURL:zoom:)` init. Task 11 rewrites `AppDelegate`. For this task, update `AppDelegate` to a stub that keeps the app compiling but does nothing useful yet. See Step 6.3.
 
 - [ ] **Step 5.3: Stub `AppDelegate` temporarily**
 
@@ -882,7 +1023,7 @@ Replace the contents of `applicationDidFinishLaunching` with a TODO comment so t
 
 ```swift
 func applicationDidFinishLaunching(_ aNotification: Notification) {
-    // Wired up in Plan B Task 10. Intentionally empty.
+    // Wired up in Plan B Task 11. Intentionally empty.
 }
 ```
 
@@ -899,12 +1040,12 @@ Expected: build succeeds.
 
 ```bash
 git add View/BrowserWindowController.swift View/AppDelegate.swift
-git commit -m "Rewrite BrowserWindowController to own tabs, sidebar, container"
+git commit -m "Rewrite BrowserWindowController with sidebar, address bar, container"
 ```
 
 ---
 
-## Task 6: Create `WindowManager`
+## Task 7: Create `WindowManager`
 
 `WindowManager` owns all `BrowserWindowController` instances, provides methods to open/close windows, and maintains z_order by listening to key window notifications.
 
@@ -1032,7 +1173,7 @@ final class WindowManager: NSObject, BrowserWindowControllerDelegate {
     // MARK: - BrowserWindowControllerDelegate
 
     func browserWindow(_ controller: BrowserWindowController, didChangeTabs: Void) {
-        // Forwarded via notification in Task 8 (SessionController).
+        // Forwarded via notification in Task 9 (SessionController).
     }
 
     func browserWindow(
@@ -1046,7 +1187,7 @@ final class WindowManager: NSObject, BrowserWindowControllerDelegate {
     }
 
     func browserWindow(_ controller: BrowserWindowController, didActivateTab tab: Tab) {
-        // Forwarded in Task 8.
+        // Forwarded in Task 9.
     }
 }
 ```
@@ -1061,7 +1202,7 @@ git commit -m "Add WindowManager for programmatic window lifecycle"
 
 ---
 
-## Task 7: Create `RestorationQueue`
+## Task 8: Create `RestorationQueue`
 
 Serial worker that promotes unloaded tabs to loaded, one at a time, triggered by each previous tab's `didFinish`.
 
@@ -1147,7 +1288,7 @@ final class RestorationQueue: NSObject, WKNavigationDelegate {
 }
 ```
 
-Note: the `container` closure parameter is not used yet but is retained so Task 8 can wire it for status feedback if needed. If unused at Task 8, remove it then.
+Note: the `container` closure parameter is not used yet but is retained so Task 9 can wire it for status feedback if needed. If unused at Task 9, remove it then.
 
 - [ ] **Step 7.2: Build and commit**
 
@@ -1159,7 +1300,7 @@ git commit -m "Add RestorationQueue for serial lazy tab promotion"
 
 ---
 
-## Task 8: Create `SessionController`
+## Task 9: Create `SessionController`
 
 Glues window/tab lifecycle to `SessionStore`. Owns the `WindowManager` and the `RestorationQueue`. On launch it reads the latest snapshot and rebuilds windows (or starts fresh). On any lifecycle event it writes through to `SessionStore` immediately.
 
@@ -1334,7 +1475,7 @@ extension SessionController: WindowManagerDelegate {
 }
 ```
 
-**Note on write cadence:** this file implements the "pure event-driven" policy. There is no timer, no debounce. End-of-interaction notifications for geometry (`NSWindowDidEndLiveResize`, `NSWindowDidMove`) are wired in Task 9, which adds them as `NotificationCenter` observers that call through to `SessionStore.updateWindow`.
+**Note on write cadence:** this file implements the "pure event-driven" policy. There is no timer, no debounce. End-of-interaction notifications for geometry (`NSWindowDidEndLiveResize`, `NSWindowDidMove`) are wired in Task 10, which adds them as `NotificationCenter` observers that call through to `SessionStore.updateWindow`.
 
 - [ ] **Step 8.2: Build and commit**
 
@@ -1346,7 +1487,7 @@ git commit -m "Add SessionController bridging lifecycle events to SessionStore"
 
 ---
 
-## Task 9: Wire Event-Driven Persistence
+## Task 10: Wire Event-Driven Persistence
 
 Add `NotificationCenter` observers for end-of-interaction geometry events, tab changes, and navigation finishes.
 
@@ -1407,17 +1548,15 @@ func browserWindow(_ controller: BrowserWindowController, didChangeTabs: Void) {
 }
 ```
 
-Instead of a delegate bounce, have `BrowserWindowController` post a notification whenever its tab list changes. Add this to `BrowserWindowController`:
+The `tabsDidChangeNotification` name was already declared in Task 6. Now add a private helper and call it from the tab mutation methods:
 
 ```swift
-static let tabsDidChangeNotification = Notification.Name("BrowserWindowController.tabsDidChange")
-
 private func postTabsDidChange() {
     NotificationCenter.default.post(name: Self.tabsDidChangeNotification, object: self)
 }
 ```
 
-Call `postTabsDidChange()` at the end of `addTab`, `removeTab`, `reorderTab`, and in `setActiveTabIndex`.
+Call `postTabsDidChange()` at the end of `addTab`, `removeTab`, `reorderTab`, and `setActiveTabIndex`.
 
 In `SessionController.init`, observe it:
 
@@ -1552,7 +1691,7 @@ git commit -m "Wire event-driven persistence for tabs, geometry, navigation"
 
 ---
 
-## Task 10: Rewrite `AppDelegate` to use `SessionController`
+## Task 11: Rewrite `AppDelegate` to use `SessionController`
 
 **Files:**
 - Modify: `View/AppDelegate.swift`
@@ -1635,16 +1774,16 @@ git commit -m "Route AppDelegate through SessionController"
 
 ---
 
-## Task 11: Add Cmd-N and Cmd-T Menu Items
+## Task 12: Add Cmd-N, Cmd-T, and Cmd-L Menu Items
 
 **Files:**
 - Modify: `View/MainMenuBuilder.swift`
 - Modify: `View/AppDelegate.swift`
 - Modify: `View/BrowserWindowController.swift`
 
-- [ ] **Step 11.1: Add menu items**
+- [ ] **Step 12.1: Add menu items**
 
-In `MainMenuBuilder.makeFileMenu()`, prepend two items:
+In `MainMenuBuilder.makeFileMenu()`, prepend three items:
 
 ```swift
 let newWindow = menu.addItem(
@@ -1656,6 +1795,11 @@ let newTab = menu.addItem(
     withTitle: "New Tab",
     action: Selector(("newTab:")),
     keyEquivalent: "t"
+)
+let openLocation = menu.addItem(
+    withTitle: "Open Location…",
+    action: Selector(("openLocation:")),
+    keyEquivalent: "l"
 )
 menu.addItem(.separator())
 ```
@@ -1670,91 +1814,114 @@ The default `#selector(NSDocumentController.newDocument(_:))` won't route to us 
 }
 ```
 
-And to `BrowserWindowController`:
+Add to `BrowserWindowController`:
 
 ```swift
 @IBAction func newTab(_ sender: Any?) {
     let tab = Tab(url: URL(string: "about:blank")!, position: tabs.count)
     addTab(tab, activate: true)
+    focusAddressBar()
+}
+
+@IBAction func openLocation(_ sender: Any?) {
+    focusAddressBar()
 }
 ```
 
-- [ ] **Step 11.2: Build and test manually**
+Note that `newTab` also focuses the address bar so the user can immediately type a URL. `openLocation` is the standard macOS selector for "focus address bar" (Safari and Chrome use this name).
+
+- [ ] **Step 12.2: Build and test manually**
 
 ```bash
 make fmt && make debug 2>&1 | tail -5
 pkill -x View 2>/dev/null || true
 .build/Build/Products/Debug/View.app/Contents/MacOS/View &
 sleep 2
-# Manually: Cmd-T opens a new blank tab, Cmd-N opens a new window.
-# Close and relaunch to verify session restore.
+# Manually:
+#   Cmd-T opens a new blank tab with focus in the address bar.
+#   Cmd-N opens a new window (also with focus in the address bar of its one tab).
+#   Cmd-L focuses the address bar of the current tab.
+#   Type "example.com" and press Enter — page loads.
+#   Close and relaunch to verify session restore.
 ```
 
-- [ ] **Step 11.3: Commit**
+- [ ] **Step 12.3: Commit**
 
 ```bash
 git add View/MainMenuBuilder.swift View/AppDelegate.swift View/BrowserWindowController.swift
-git commit -m "Add Cmd-N and Cmd-T for new window and new tab"
+git commit -m "Add Cmd-N, Cmd-T, Cmd-L and wire new-tab to focus address bar"
 ```
 
 ---
 
-## Task 12: Manual Acceptance
+## Task 13: Manual Acceptance
 
-- [ ] **Step 12.1: Clean slate**
+- [ ] **Step 13.1: Clean slate**
 
 ```bash
 pkill -x View 2>/dev/null || true
 rm -rf ~/Library/Application\ Support/View
 ```
 
-- [ ] **Step 12.2: First launch**
+- [ ] **Step 13.2: First launch and first navigation**
 
 ```bash
 .build/Build/Products/Debug/View.app/Contents/MacOS/View &
 sleep 2
 ```
-Expected: one window opens with one `about:blank` tab in the sidebar.
+Expected: one window opens with one `about:blank` tab; address bar is focused and empty.
 
-- [ ] **Step 12.3: Multi-tab**
+In the address bar, type `example.com` and press Enter. Verify the page loads and the address bar now shows `https://example.com/` (or similar) after `didFinish`.
 
-In the app: press Cmd-T three times. Type a URL is not yet supported in MVP, so manually open each new tab's URL by... Plan B does not include an address bar. The three new tabs will all be `about:blank`. Verify the sidebar shows four rows and selecting each row swaps the container.
+- [ ] **Step 13.3: Multi-tab with real navigation**
 
-- [ ] **Step 12.4: Multi-window**
+Press Cmd-T. New blank tab opens, address bar is focused. Type `news.ycombinator.com` + Enter. Verify HN loads.
 
-Press Cmd-N. A second window appears with its own sidebar containing one `about:blank` tab.
+Press Cmd-T again. Type `github.com` + Enter. Verify GitHub loads.
 
-- [ ] **Step 12.5: Reorder**
+Verify the sidebar shows three rows with titles reflecting each site. Click each row and verify the container swaps to the right WebView and the address bar updates to the right URL.
 
-Drag a row in the sidebar to a different position. Verify the visual order changes and the active tab stays highlighted.
+- [ ] **Step 13.4: Multi-window**
 
-- [ ] **Step 12.6: Persistence**
+Press Cmd-N. A second window appears. Its address bar is focused. Type `wikipedia.org` + Enter. Verify Wikipedia loads in the new window while the first window still has its three tabs.
+
+- [ ] **Step 13.5: Cmd-L**
+
+In the currently-active tab, press Cmd-L. The address bar should become the first responder and its current text should be selected for easy overwrite.
+
+- [ ] **Step 13.6: Reorder**
+
+Drag a row in the first window's sidebar to a different position. Verify the visual order changes and the active tab stays highlighted.
+
+- [ ] **Step 13.7: Persistence**
 
 Quit the app (Cmd-Q). Inspect the database:
 
 ```bash
 sqlite3 ~/Library/Application\ Support/View/Profiles/Default/view.sqlite \
-  "SELECT id, closed_at FROM sessions; SELECT id, session_id, z_order FROM windows; SELECT id, window_id, url, position, is_active FROM tabs;"
+  "SELECT id, closed_at FROM sessions;
+   SELECT id, session_id, z_order FROM windows;
+   SELECT id, window_id, url, title, position, is_active FROM tabs;"
 ```
-Expected: one archived session, two windows, five tabs total (4 + 1), positions and is_active flags correct.
+Expected: one archived session, two windows, four tabs total (three in window 1, one in window 2) with their real URLs and titles persisted.
 
-- [ ] **Step 12.7: Restore**
+- [ ] **Step 13.8: Restore**
 
-Relaunch the app:
+Relaunch:
 
 ```bash
 .build/Build/Products/Debug/View.app/Contents/MacOS/View &
 sleep 3
 ```
-Expected: both windows reappear with the same tab counts and sidebar contents. The previously active tabs are selected.
+Expected: both windows reappear with all tabs at the right URLs. The previously active tab in each window is selected. Non-active tabs show their cached titles in the sidebar; their WebViews are created lazily one at a time on each preceding tab's `didFinish`. Wait ~5 seconds then click a non-active tab — it should already be loaded (or finish loading quickly).
 
-- [ ] **Step 12.8: Startup mode blank**
+- [ ] **Step 13.9: Startup mode blank**
 
-Quit, edit `settings.toml` to `mode = "blank"`, relaunch. A single window with one blank tab appears. Quit. Edit `settings.toml` back to `mode = "resume"`. The previously-active session's blank-mode new session is in the DB now; restoring should pick the most recent session (the blank one, which has just that one window). This is spec-correct behavior.
+Quit. Edit `settings.toml` to set `mode = "blank"`. Relaunch. A single window with one blank tab appears. The previous session is still archived in the DB but was not reopened. Quit. Edit `settings.toml` back to `mode = "resume"`.
 
-- [ ] **Step 12.9: Geometry persistence**
+- [ ] **Step 13.10: Geometry persistence**
 
-Quit, relaunch, resize and move a window. Quit. Relaunch. The window should reopen at the same frame.
+Quit, relaunch, resize and move a window, quit again, relaunch once more. The window reopens at the same frame.
 
 ---
 
@@ -1762,18 +1929,19 @@ Quit, relaunch, resize and move a window. Quit. Relaunch. The window should reop
 
 1. `make test-core` passes with the extended SessionStore tests.
 2. `make debug` succeeds.
-3. The app opens with one window, supports Cmd-T, Cmd-N, tab selection, drag reorder, and Cmd-W to close.
-4. Session persists across quit/relaunch (Tasks 12.2 through 12.9).
-5. Lazy restoration: on a multi-tab session, only the active tabs have WebViews immediately; non-active tabs promote one at a time on their predecessors' `didFinish`.
-6. No session-store timer or debounce code exists; writes are purely event-driven.
-7. All Plan A tests still pass.
+3. The app opens with one window, supports Cmd-T, Cmd-N, Cmd-L, tab selection, drag reorder, and Cmd-W to close.
+4. The minimal address bar loads any URL typed into it (bare domain gets `https://` prepended).
+5. Session persists across quit/relaunch (Task 13).
+6. Lazy restoration: on a multi-tab session, only the active tabs have WebViews immediately; non-active tabs promote one at a time on their predecessors' `didFinish`.
+7. No session-store timer or debounce code exists; writes are purely event-driven.
+8. All Plan A tests still pass.
 
 ---
 
 ## Out of Scope for Plan B (Deferred to Later Plans)
 
 - Vim keybindings (Plan C).
-- Address bar / URL input UI.
+- Address bar autocomplete, history suggestions, search-engine fallback, reload/back/forward buttons, SSL indicator.
 - Favicon display in sidebar.
 - Close button per sidebar row (close via Cmd-W only).
 - Navigation controls (back/forward/reload buttons).
