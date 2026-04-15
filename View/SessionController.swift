@@ -1,4 +1,5 @@
 import AppKit
+import GRDB
 import ViewCore
 import WebKit
 
@@ -31,6 +32,27 @@ final class SessionController: NSObject {
                 return webView
             },
             container: { _ in nil }
+        )
+        self.restorationQueue.ownerLookup = { [weak self] tab in
+            self?.findController(for: tab)
+        }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowGeometryChanged(_:)),
+            name: NSWindow.didEndLiveResizeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowGeometryChanged(_:)),
+            name: NSWindow.didMoveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(tabsDidChange(_:)),
+            name: BrowserWindowController.tabsDidChangeNotification,
+            object: nil
         )
     }
 
@@ -127,6 +149,66 @@ final class SessionController: NSObject {
         )
         let id = try sessionStore.insertTab(row)
         tab.persistenceID = id
+    }
+
+    private func findController(for tab: Tab) -> BrowserWindowController? {
+        windowManager.controllers.first { $0.tabs.contains { $0 === tab } }
+    }
+
+    @objc private func tabsDidChange(_ notification: Notification) {
+        guard let controller = notification.object as? BrowserWindowController else { return }
+        guard let windowID = controller.persistenceID else { return }
+        let existing: [TabRow] =
+            (try? sessionStore.reader.read { db in
+                try TabRow.filter(Column("window_id") == windowID).fetchAll(db)
+            }) ?? []
+        let currentIDs = Set(controller.tabs.compactMap { $0.persistenceID })
+        for row in existing where !currentIDs.contains(row.id!) {
+            try? sessionStore.deleteTab(id: row.id!)
+        }
+        for (i, tab) in controller.tabs.enumerated() {
+            let isActive = i == controller.activeTabIndex
+            if let id = tab.persistenceID {
+                let row = TabRow(
+                    id: id,
+                    windowId: windowID,
+                    url: tab.url.absoluteString,
+                    title: tab.title,
+                    position: i,
+                    isActive: isActive
+                )
+                try? sessionStore.updateTab(row)
+            } else {
+                let row = TabRow(
+                    windowId: windowID,
+                    url: tab.url.absoluteString,
+                    title: tab.title,
+                    position: i,
+                    isActive: isActive
+                )
+                if let newID = try? sessionStore.insertTab(row) {
+                    tab.persistenceID = newID
+                }
+            }
+        }
+    }
+
+    @objc private func windowGeometryChanged(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        guard let controller = windowManager.controllers.first(where: { $0.window === window })
+        else { return }
+        guard let id = controller.persistenceID else { return }
+        let frame = window.frame
+        let row = WindowRow(
+            id: id,
+            sessionId: activeSessionID,
+            frameX: Double(frame.origin.x),
+            frameY: Double(frame.origin.y),
+            frameW: Double(frame.size.width),
+            frameH: Double(frame.size.height),
+            zOrder: controller.zOrder
+        )
+        try? sessionStore.updateWindow(row)
     }
 }
 

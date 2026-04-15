@@ -7,6 +7,8 @@ final class RestorationQueue: NSObject, WKNavigationDelegate {
     private let webViewFactory: (Tab) -> WKWebView
     private let container: (Tab) -> WebContainerView?
 
+    var ownerLookup: ((Tab) -> BrowserWindowController?)?
+
     init(
         webViewFactory: @escaping (Tab) -> WKWebView,
         container: @escaping (Tab) -> WebContainerView?
@@ -48,14 +50,33 @@ final class RestorationQueue: NSObject, WKNavigationDelegate {
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        webView.navigationDelegate = nil
+        if let tab = currentTab {
+            if let url = webView.url { tab.url = url }
+            tab.title = webView.title
+            if let owner = ownerLookup?(tab) {
+                let observer = BrowserNavigationObserver(tab: tab, owner: owner)
+                tab.navigationObserver = observer
+                webView.navigationDelegate = observer
+                owner.refreshAfterNavigation(tab: tab)
+            } else {
+                webView.navigationDelegate = nil
+            }
+        } else {
+            webView.navigationDelegate = nil
+        }
         DispatchQueue.main.async { [weak self] in
             self?.promoteNext()
         }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        webView.navigationDelegate = nil
+        if let tab = currentTab, let owner = ownerLookup?(tab) {
+            let observer = BrowserNavigationObserver(tab: tab, owner: owner)
+            tab.navigationObserver = observer
+            webView.navigationDelegate = observer
+        } else {
+            webView.navigationDelegate = nil
+        }
         DispatchQueue.main.async { [weak self] in
             self?.promoteNext()
         }
@@ -66,7 +87,13 @@ final class RestorationQueue: NSObject, WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
-        webView.navigationDelegate = nil
+        if let tab = currentTab, let owner = ownerLookup?(tab) {
+            let observer = BrowserNavigationObserver(tab: tab, owner: owner)
+            tab.navigationObserver = observer
+            webView.navigationDelegate = observer
+        } else {
+            webView.navigationDelegate = nil
+        }
         DispatchQueue.main.async { [weak self] in
             self?.promoteNext()
         }

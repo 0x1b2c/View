@@ -9,6 +9,8 @@ final class Tab {
     var webView: WKWebView?
     var position: Int
 
+    var navigationObserver: NSObject?
+
     var onTitleChange: ((Tab) -> Void)?
     var onNavigationFinish: ((Tab) -> Void)?
 

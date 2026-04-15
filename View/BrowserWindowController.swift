@@ -92,11 +92,15 @@ final class BrowserWindowController: NSWindowController {
         tab.onTitleChange = { [weak self] _ in
             self?.refreshSidebar()
         }
+        if tab.webView != nil {
+            attachNavigationObserver(to: tab)
+        }
         if activate {
             setActiveTabIndex(tabs.count - 1)
         }
         refreshSidebar()
         delegate?.browserWindow(self, didChangeTabs: ())
+        postTabsDidChange()
     }
 
     func removeTab(at index: Int) {
@@ -116,6 +120,7 @@ final class BrowserWindowController: NSWindowController {
         refreshSidebar()
         activateCurrent()
         delegate?.browserWindow(self, didChangeTabs: ())
+        postTabsDidChange()
     }
 
     func reorderTab(from source: Int, to destination: Int) {
@@ -133,6 +138,7 @@ final class BrowserWindowController: NSWindowController {
         }
         refreshSidebar()
         delegate?.browserWindow(self, didChangeTabs: ())
+        postTabsDidChange()
     }
 
     func setActiveTabIndex(_ index: Int) {
@@ -140,6 +146,7 @@ final class BrowserWindowController: NSWindowController {
         activeTabIndex = index
         activateCurrent()
         sidebar.reloadTitles(tabs.map { $0.title ?? $0.url.absoluteString }, selectedIndex: index)
+        postTabsDidChange()
     }
 
     private func activateCurrent() {
@@ -153,10 +160,27 @@ final class BrowserWindowController: NSWindowController {
             let webView = delegate.browserWindow(self, needsWebViewFor: tab)
             tab.adopt(webView: webView)
             webView.load(URLRequest(url: tab.url))
+            attachNavigationObserver(to: tab)
         }
         container.setWebView(tab.webView)
         addressBar.text = tab.url.absoluteString
         delegate?.browserWindow(self, didActivateTab: tab)
+    }
+
+    private func attachNavigationObserver(to tab: Tab) {
+        guard let webView = tab.webView else { return }
+        let observer = BrowserNavigationObserver(tab: tab, owner: self)
+        tab.navigationObserver = observer
+        webView.navigationDelegate = observer
+    }
+
+    private func postTabsDidChange() {
+        NotificationCenter.default.post(name: Self.tabsDidChangeNotification, object: self)
+    }
+
+    func refreshAfterNavigation(tab: Tab) {
+        refreshSidebar()
+        postTabsDidChange()
     }
 
     private func refreshSidebar() {
@@ -193,8 +217,9 @@ extension BrowserWindowController: AddressBarViewDelegate {
             tab.adopt(webView: webView)
             container.setWebView(webView)
             webView.load(URLRequest(url: url))
+            attachNavigationObserver(to: tab)
         }
         refreshSidebar()
-        NotificationCenter.default.post(name: Self.tabsDidChangeNotification, object: self)
+        postTabsDidChange()
     }
 }
