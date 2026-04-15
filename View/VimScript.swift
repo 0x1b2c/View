@@ -51,23 +51,6 @@ enum VimScript {
             return Math.max(100, Math.floor(window.innerHeight / 2));
           }
 
-          function fullViewport() {
-            return Math.max(200, window.innerHeight);
-          }
-
-          function dispatchCtrl(key) {
-            switch (key) {
-              case 'f':
-                window.scrollBy(0, fullViewport());
-                return true;
-              case 'b':
-                window.scrollBy(0, -fullViewport());
-                return true;
-              default:
-                return false;
-            }
-          }
-
           function dispatch(key, event) {
             // Two-char sequences beginning with 'g'.
             if (prefix === 'g') {
@@ -113,17 +96,8 @@ enum VimScript {
           }
 
           window.addEventListener('keydown', function (event) {
-            if (event.metaKey || event.altKey) return;
+            if (event.ctrlKey || event.metaKey || event.altKey) return;
             if (isEditable(event.target)) return;
-
-            if (event.ctrlKey) {
-              if (event.shiftKey) return;
-              if (dispatchCtrl(event.key)) {
-                event.preventDefault();
-                event.stopPropagation();
-              }
-              return;
-            }
 
             if (event.key.length !== 1 && event.key !== 'g') return;
             if (WHITELISTED && event.key !== 'g' && event.key !== 'G') {

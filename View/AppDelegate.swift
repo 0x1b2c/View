@@ -4,9 +4,11 @@ import WebKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var sessionController: SessionController?
+    private var keyMonitor: Any?
 
     func applicationWillFinishLaunching(_ aNotification: Notification) {
         NSApp.mainMenu = MainMenuBuilder.build()
+        keyMonitor = NativeKeyBindings.install()
     }
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
