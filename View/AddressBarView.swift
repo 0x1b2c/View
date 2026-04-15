@@ -62,14 +62,47 @@ final class AddressBarView: NSView {
     fileprivate func submit() {
         let raw = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return }
-        let normalized = Self.normalize(raw)
-        guard let url = URL(string: normalized) else { return }
+        guard let url = Self.resolve(raw) else { return }
         delegate?.addressBar(self, didSubmitURL: url)
     }
 
-    static func normalize(_ input: String) -> String {
-        if input.contains("://") { return input }
-        return "https://\(input)"
+    static func resolve(_ input: String) -> URL? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+
+        if trimmed.contains("://") {
+            return URL(string: trimmed)
+        }
+
+        if trimmed == "localhost" || trimmed.hasPrefix("localhost:")
+            || trimmed.hasPrefix("localhost/")
+        {
+            return URL(string: "http://\(trimmed)")
+        }
+
+        if trimmed.rangeOfCharacter(from: .whitespaces) == nil,
+            looksLikeHost(trimmed)
+        {
+            return URL(string: "https://\(trimmed)")
+        }
+
+        return searchURL(for: trimmed)
+    }
+
+    private static func looksLikeHost(_ s: String) -> Bool {
+        guard let dotIndex = s.firstIndex(of: ".") else { return false }
+        let afterDot = s[s.index(after: dotIndex)...]
+        if afterDot.isEmpty { return false }
+        if afterDot.contains(".") { return true }
+        return afterDot.count >= 2 && afterDot.allSatisfy { $0.isLetter || $0.isNumber }
+    }
+
+    private static func searchURL(for query: String) -> URL? {
+        guard
+            let encoded = query.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed)
+        else { return nil }
+        return URL(string: "https://www.google.com/search?q=\(encoded)")
     }
 }
 
