@@ -76,9 +76,9 @@ final class BrowserWindowController: NSWindowController {
             splitView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             splitView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
+            sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
         ])
-        splitView.setPosition(200, ofDividerAt: 0)
+        splitView.setPosition(260, ofDividerAt: 0)
     }
 
     // MARK: - Address bar API
