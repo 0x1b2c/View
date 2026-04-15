@@ -18,7 +18,7 @@ enum VimScript {
             return false;
           }
 
-          if (hostMatches(location.hostname)) return;
+          const WHITELISTED = hostMatches(location.hostname);
 
           function isEditable(target) {
             if (!target) return false;
@@ -125,6 +125,7 @@ enum VimScript {
               return;
             }
 
+            if (WHITELISTED) return;
             if (event.key.length !== 1 && event.key !== 'g') return;
 
             const handled = dispatch(event.key, event);

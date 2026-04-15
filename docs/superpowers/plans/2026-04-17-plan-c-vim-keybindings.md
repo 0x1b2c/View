@@ -11,10 +11,9 @@
 - Configuration (whitelist, enabled flag) is templated into the JS source at bundle time via string substitution in Swift, so the script has no runtime bridge to Swift.
 - On every `keydown` (capture phase), the script:
   1. Bails out if `event.metaKey || event.altKey` — Cmd/Alt shortcuts always pass through untouched.
-  2. Bails out if the current host matches the whitelist (exact match or dot-suffix match).
-  3. Bails out if the event target is an editable element (`INPUT`, `TEXTAREA`, `SELECT`, or anything with `isContentEditable`).
-  4. For `event.ctrlKey`: only `Ctrl-f` / `Ctrl-b` are intercepted (full-page down/up). Any other Ctrl-combo is passed through so system shortcuts like `Ctrl-\`` reach macOS unaffected. `Ctrl+Shift+*` always passes through.
-  5. Otherwise dispatches the unmodified keymap. On match, `preventDefault()` + `stopPropagation()`.
+  2. Bails out if the event target is an editable element (`INPUT`, `TEXTAREA`, `SELECT`, or anything with `isContentEditable`).
+  3. For `event.ctrlKey`: only `Ctrl-f` / `Ctrl-b` are intercepted (full-page down/up), **regardless of whitelist**. Any other Ctrl-combo is passed through so system shortcuts like `Ctrl-\`` reach macOS unaffected. `Ctrl+Shift+*` always passes through.
+  4. For unmodified keys: if the current host is on the whitelist, bail out (let the site handle its own j/k/etc). Otherwise dispatch the unmodified keymap; on match, `preventDefault()` + `stopPropagation()`.
 - Keymap actions are plain JS: `window.scrollBy`, `window.scrollTo`, `history.back/forward`, `location.reload`. No native bridge needed.
 - `g` is a one-char prefix with a 1-second timeout (`gg` → scroll to top).
 
@@ -333,9 +332,11 @@ Expected: every key works. None of them type characters into any page field.
 
 On the same Wikipedia page, click the search box in the article header (or any `<input>` on the page). Press `j`. Expected: the letter `j` is typed into the field, the page does not scroll. Press Escape / click outside the input, press `j` again. Expected: scroll resumes.
 
-- [ ] **Step 4.4: Whitelisted site — no interception**
+- [ ] **Step 4.4: Whitelisted site — unmodified keys pass through, Ctrl-f/Ctrl-b still work**
 
 Open a new tab (Cmd-T) and navigate to `mail.google.com`. Sign in if necessary. In the Gmail inbox view, press `j` and `k`. Expected: Gmail's own keybindings advance/retreat through the message list. The browser must not scroll the page. Verify also on `twitter.com` or `x.com` — `j` and `k` should advance tweets.
+
+Now on the same whitelisted page press `Ctrl-f` and `Ctrl-b`. Expected: the Vim layer scrolls the page one viewport at a time. Whitelist must **not** disable `Ctrl-f`/`Ctrl-b` — these bindings run on every site because Ctrl-prefixed keys don't collide with web-app shortcuts.
 
 - [ ] **Step 4.5: Modifier keys — system shortcuts still work**
 
@@ -364,7 +365,7 @@ Quit the app. Edit `settings.toml` and add `"en.wikipedia.org"` to `whitelist`. 
 2. Plan B unit tests still pass: `make test-core`.
 3. Plan B regression sanity: Cmd-T, Cmd-N, Cmd-W, tab switching, drag reorder, and session restore still work after the `makeConfiguration` signature change (touched once in `AppDelegate`; verified during Task 4 manual run).
 3. On any non-whitelisted page, `j/k/d/u/gg/G/H/L/r` behave as specified.
-4. On any whitelisted site (`mail.google.com`, `twitter.com`, `x.com`, `reddit.com`, `youtube.com` by default), the Vim script does not intercept any key.
+4. On any whitelisted site (`mail.google.com`, `twitter.com`, `x.com`, `reddit.com`, `youtube.com` by default), the Vim script does not intercept **unmodified** keys (j/k/d/u/g/G/H/L/r). `Ctrl-f` and `Ctrl-b` remain active on whitelisted sites because Ctrl-prefixed keys don't collide with web-app shortcuts.
 5. Typing into `<input>`, `<textarea>`, `<select>`, or a contenteditable element is never intercepted.
 6. No Vim-layer interception ever fires for events carrying `Cmd` or `Alt` modifiers. `Ctrl` is only intercepted for `Ctrl-f` and `Ctrl-b`; all other `Ctrl-*` combos (including `Ctrl-\``) pass through to the system.
 7. Setting `[vim].enabled = false` in `settings.toml` disables the layer globally on next launch.
