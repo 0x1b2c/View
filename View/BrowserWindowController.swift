@@ -255,5 +255,6 @@ extension BrowserWindowController: AddressBarViewDelegate {
         }
         refreshSidebar()
         postTabsDidChange()
+        window?.makeFirstResponder(tab.webView)
     }
 }
