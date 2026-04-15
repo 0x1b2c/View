@@ -121,6 +121,21 @@ final class BrowserWindowController: NSWindowController {
         setActiveTabIndex(tabs.count - 1)
     }
 
+    @IBAction func viewGoBack(_ sender: Any?) {
+        guard tabs.indices.contains(activeTabIndex) else { return }
+        tabs[activeTabIndex].webView?.goBack()
+    }
+
+    @IBAction func viewGoForward(_ sender: Any?) {
+        guard tabs.indices.contains(activeTabIndex) else { return }
+        tabs[activeTabIndex].webView?.goForward()
+    }
+
+    @IBAction func viewReload(_ sender: Any?) {
+        guard tabs.indices.contains(activeTabIndex) else { return }
+        tabs[activeTabIndex].webView?.reload()
+    }
+
     // MARK: - Tab management
 
     func addTab(_ tab: Tab, activate: Bool) {

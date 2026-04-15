@@ -20,6 +20,10 @@ enum MainMenuBuilder {
         mainMenu.addItem(viewMenuItem)
         viewMenuItem.submenu = makeViewMenu()
 
+        let historyMenuItem = NSMenuItem()
+        mainMenu.addItem(historyMenuItem)
+        historyMenuItem.submenu = makeHistoryMenu()
+
         let windowMenuItem = NSMenuItem()
         mainMenu.addItem(windowMenuItem)
         windowMenuItem.submenu = makeWindowMenu()
@@ -142,6 +146,27 @@ enum MainMenuBuilder {
             keyEquivalent: "f"
         )
         toggleFullScreen.keyEquivalentModifierMask = [.command, .control]
+        return menu
+    }
+
+    private static func makeHistoryMenu() -> NSMenu {
+        let menu = NSMenu(title: "History")
+        menu.addItem(
+            withTitle: "Back",
+            action: Selector(("viewGoBack:")),
+            keyEquivalent: "["
+        )
+        menu.addItem(
+            withTitle: "Forward",
+            action: Selector(("viewGoForward:")),
+            keyEquivalent: "]"
+        )
+        menu.addItem(.separator())
+        menu.addItem(
+            withTitle: "Reload",
+            action: Selector(("viewReload:")),
+            keyEquivalent: "r"
+        )
         return menu
     }
 
