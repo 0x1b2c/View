@@ -30,6 +30,8 @@ final class BrowserWindowController: NSWindowController {
     private let splitView = NSSplitView()
     private let rightStack = NSStackView()
 
+    private var progressObservation: NSKeyValueObservation?
+
     init(initialFrame: NSRect) {
         let window = SilentBrowserWindow(
             contentRect: initialFrame,
@@ -198,7 +200,30 @@ final class BrowserWindowController: NSWindowController {
         }
         container.setWebView(tab.webView)
         addressBar.text = tab.url.absoluteString
+        bindProgress(to: tab.webView)
         delegate?.browserWindow(self, didActivateTab: tab)
+    }
+
+    private func bindProgress(to webView: WKWebView?) {
+        progressObservation = nil
+        guard let webView else {
+            addressBar.setProgress(0, animated: false)
+            return
+        }
+        if webView.isLoading {
+            addressBar.setProgress(webView.estimatedProgress, animated: false)
+        } else {
+            addressBar.setProgress(0, animated: false)
+        }
+        progressObservation = webView.observe(\.estimatedProgress, options: [.new]) {
+            [weak self] webView, _ in
+            guard let self else { return }
+            if webView.isLoading {
+                self.addressBar.setProgress(webView.estimatedProgress, animated: true)
+            } else {
+                self.addressBar.setProgress(1, animated: true)
+            }
+        }
     }
 
     private func attachNavigationObserver(to tab: Tab) {
@@ -252,7 +277,9 @@ extension BrowserWindowController: AddressBarViewDelegate {
             container.setWebView(webView)
             webView.load(URLRequest(url: url))
             attachNavigationObserver(to: tab)
+            bindProgress(to: webView)
         }
+        addressBar.setProgress(0.1, animated: true)
         refreshSidebar()
         postTabsDidChange()
         window?.makeFirstResponder(tab.webView)

@@ -8,6 +8,7 @@ final class AddressBarView: NSView {
     weak var delegate: AddressBarViewDelegate?
 
     private let textField = NSTextField()
+    private let progressBar = ProgressBarView()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -28,13 +29,24 @@ final class AddressBarView: NSView {
         textField.delegate = self
         textField.translatesAutoresizingMaskIntoConstraints = false
 
+        progressBar.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(textField)
+        addSubview(progressBar)
         NSLayoutConstraint.activate([
             textField.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            progressBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            progressBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            progressBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            progressBar.heightAnchor.constraint(equalToConstant: 2),
         ])
+    }
+
+    func setProgress(_ value: Double, animated: Bool) {
+        progressBar.setProgress(value, animated: animated)
     }
 
     var text: String {
