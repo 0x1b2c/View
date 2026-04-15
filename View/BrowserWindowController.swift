@@ -95,6 +95,30 @@ final class BrowserWindowController: NSWindowController {
         focusAddressBar()
     }
 
+    @IBAction func viewShowNextTab(_ sender: Any?) {
+        guard !tabs.isEmpty else { return }
+        let next = (activeTabIndex + 1) % tabs.count
+        setActiveTabIndex(next)
+    }
+
+    @IBAction func viewShowPreviousTab(_ sender: Any?) {
+        guard !tabs.isEmpty else { return }
+        let prev = (activeTabIndex - 1 + tabs.count) % tabs.count
+        setActiveTabIndex(prev)
+    }
+
+    @IBAction func viewShowTabByIndex(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem else { return }
+        let index = item.tag
+        guard tabs.indices.contains(index) else { return }
+        setActiveTabIndex(index)
+    }
+
+    @IBAction func viewShowLastTab(_ sender: Any?) {
+        guard !tabs.isEmpty else { return }
+        setActiveTabIndex(tabs.count - 1)
+    }
+
     // MARK: - Tab management
 
     func addTab(_ tab: Tab, activate: Bool) {

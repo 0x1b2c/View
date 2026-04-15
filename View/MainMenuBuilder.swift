@@ -158,6 +158,36 @@ enum MainMenuBuilder {
             keyEquivalent: ""
         )
         menu.addItem(.separator())
+
+        let nextTab = menu.addItem(
+            withTitle: "Show Next Tab",
+            action: Selector(("viewShowNextTab:")),
+            keyEquivalent: "]"
+        )
+        nextTab.keyEquivalentModifierMask = [.command, .shift]
+        let prevTab = menu.addItem(
+            withTitle: "Show Previous Tab",
+            action: Selector(("viewShowPreviousTab:")),
+            keyEquivalent: "["
+        )
+        prevTab.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(.separator())
+
+        for index in 1...8 {
+            let item = menu.addItem(
+                withTitle: "Show Tab \(index)",
+                action: Selector(("viewShowTabByIndex:")),
+                keyEquivalent: "\(index)"
+            )
+            item.tag = index - 1
+        }
+        menu.addItem(
+            withTitle: "Show Last Tab",
+            action: Selector(("viewShowLastTab:")),
+            keyEquivalent: "9"
+        )
+        menu.addItem(.separator())
+
         menu.addItem(
             withTitle: "Bring All to Front",
             action: #selector(NSApplication.arrangeInFront(_:)),
