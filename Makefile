@@ -12,14 +12,16 @@ XCODEBUILD = xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DE
 CORE_PKG = Packages/ViewCore
 FMT_TARGETS = View $(CORE_PKG)/Sources $(CORE_PKG)/Tests
 
+.DEFAULT_GOAL := debug
+
 .PHONY: build debug run test test-core clean install zip release lsp fmt fmt-check
+
+debug:
+	$(XCODEBUILD) -configuration Debug -derivedDataPath $(DERIVED) -quiet
 
 build:
 	$(XCODEBUILD) -configuration Release -derivedDataPath $(DERIVED) $(UNIVERSAL) $(NO_PROFILING) -quiet
 	@echo "Built: $(APP)"
-
-debug:
-	$(XCODEBUILD) -configuration Debug -derivedDataPath $(DERIVED) -quiet
 
 run: debug
 	open "$(DERIVED)/Build/Products/Debug/View.app"

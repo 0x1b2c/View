@@ -14,6 +14,7 @@ final class TabSidebarView: NSView {
     private var titles: [String] = []
 
     private let pasteboardType = NSPasteboard.PasteboardType("io.protoss.view.tabIndex")
+    private var isProgrammaticallyUpdating = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -56,6 +57,8 @@ final class TabSidebarView: NSView {
     }
 
     func reloadTitles(_ newTitles: [String], selectedIndex: Int) {
+        isProgrammaticallyUpdating = true
+        defer { isProgrammaticallyUpdating = false }
         titles = newTitles
         tableView.reloadData()
         if selectedIndex >= 0 && selectedIndex < newTitles.count {
@@ -116,6 +119,7 @@ extension TabSidebarView: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !isProgrammaticallyUpdating else { return }
         let row = tableView.selectedRow
         guard row >= 0 else { return }
         delegate?.sidebarDidSelectTab(at: row)

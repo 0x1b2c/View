@@ -71,7 +71,7 @@ enum MainMenuBuilder {
         let menu = NSMenu(title: "File")
         menu.addItem(
             withTitle: "New Window",
-            action: Selector(("newDocument:")),
+            action: #selector(NSDocumentController.newDocument(_:)),
             keyEquivalent: "n"
         )
         menu.addItem(
