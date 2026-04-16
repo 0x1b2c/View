@@ -23,4 +23,14 @@ final class BrowserNavigationObserver: NSObject, WKNavigationDelegate {
             owner.refreshAfterNavigation(tab: tab)
         }
     }
+
+    func webView(
+        _ webView: WKWebView,
+        didSameDocumentNavigation navigation: WKNavigation!
+    ) {
+        guard let tab, let owner else { return }
+        if let url = webView.url { tab.url = url }
+        tab.title = webView.title
+        owner.refreshAfterNavigation(tab: tab)
+    }
 }
