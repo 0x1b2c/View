@@ -78,6 +78,7 @@ final class WindowManager: NSObject, BrowserWindowControllerDelegate {
                 title: restored.title,
                 position: i
             )
+            tab.skipHistoryOnNextFinish = true
             controller.addTab(tab, activate: false)
             if restored.isActive { activeIndex = i }
         }

@@ -12,6 +12,7 @@ final class Tab {
 
     var navigationObserver: NSObject?
     var uiDelegate: NSObject?
+    var skipHistoryOnNextFinish: Bool = false
 
     var onTitleChange: ((Tab) -> Void)?
     var onNavigationFinish: ((Tab) -> Void)?

@@ -72,7 +72,63 @@ public final class SessionStore {
             }
         }
 
+        migrator.registerMigration("v3: history") { db in
+            try db.create(table: "history") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("url", .text).notNull().unique()
+                t.column("title", .text)
+                t.column("visit_count", .integer).notNull().defaults(to: 1)
+                t.column("last_visited_at", .text).notNull()
+            }
+            try db.create(
+                index: "history_last_visited",
+                on: "history",
+                columns: ["last_visited_at"]
+            )
+        }
+
         return migrator
+    }
+
+    // MARK: - History
+
+    public func recordVisit(url: String, title: String?) throws {
+        let now = ISO8601DateFormatter().string(from: Date())
+        try writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO history(url, title, visit_count, last_visited_at)
+                    VALUES(?, ?, 1, ?)
+                    ON CONFLICT(url) DO UPDATE SET
+                        visit_count = visit_count + 1,
+                        last_visited_at = excluded.last_visited_at,
+                        title = COALESCE(excluded.title, history.title)
+                    """,
+                arguments: [url, title, now]
+            )
+        }
+    }
+
+    public func suggestHistory(query: String, limit: Int = 10) throws -> [HistoryEntry] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+        let prefixPattern = "\(trimmed)%"
+        let substringPattern = "%\(trimmed)%"
+        return try reader.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT url, title FROM history
+                    WHERE url LIKE ? OR title LIKE ?
+                    ORDER BY last_visited_at DESC, visit_count DESC
+                    LIMIT ?
+                    """,
+                arguments: [prefixPattern, substringPattern, limit]
+            )
+            return rows.map { row in
+                HistoryEntry(url: row["url"], title: row["title"])
+            }
+        }
     }
 
     // MARK: - Preferences

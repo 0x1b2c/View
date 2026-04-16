@@ -61,6 +61,26 @@ final class SessionController: NSObject {
             name: BrowserWindowController.sidebarWidthDidChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(historyVisitDidOccur(_:)),
+            name: BrowserNavigationObserver.historyVisitDidOccurNotification,
+            object: nil
+        )
+    }
+
+    @objc private func historyVisitDidOccur(_ notification: Notification) {
+        guard
+            let url = notification.userInfo?[BrowserNavigationObserver.historyVisitURLKey]
+                as? String
+        else { return }
+        let title =
+            notification.userInfo?[BrowserNavigationObserver.historyVisitTitleKey] as? String
+        try? sessionStore.recordVisit(url: url, title: title)
+    }
+
+    func suggestHistory(for query: String) -> [HistoryEntry] {
+        (try? sessionStore.suggestHistory(query: query)) ?? []
     }
 
     private static let sidebarWidthPreferenceKey = "sidebar_width"
