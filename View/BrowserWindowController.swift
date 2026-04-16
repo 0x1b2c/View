@@ -247,6 +247,31 @@ final class BrowserWindowController: NSWindowController {
         let observer = BrowserNavigationObserver(tab: tab, owner: self)
         tab.navigationObserver = observer
         webView.navigationDelegate = observer
+
+        let ui = BrowserUIDelegate(owner: self)
+        tab.uiDelegate = ui
+        webView.uiDelegate = ui
+    }
+
+    func openBackgroundTab(
+        with url: URL,
+        configuration: WKWebViewConfiguration
+    ) -> WKWebView {
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.pageZoom = tabs.first?.webView?.pageZoom ?? 1.0
+        webView.translatesAutoresizingMaskIntoConstraints = false
+
+        let tab = Tab(url: url, position: tabs.count)
+        tab.adopt(webView: webView)
+        tabs.append(tab)
+        tab.onTitleChange = { [weak self] _ in
+            self?.refreshSidebar()
+        }
+        attachNavigationObserver(to: tab)
+        refreshSidebar()
+        delegate?.browserWindow(self, didChangeTabs: ())
+        postTabsDidChange()
+        return webView
     }
 
     func beginRestoring() {

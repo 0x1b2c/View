@@ -11,6 +11,7 @@ final class Tab {
     var favicon: NSImage?
 
     var navigationObserver: NSObject?
+    var uiDelegate: NSObject?
 
     var onTitleChange: ((Tab) -> Void)?
     var onNavigationFinish: ((Tab) -> Void)?
