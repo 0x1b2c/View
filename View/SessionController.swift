@@ -67,6 +67,12 @@ final class SessionController: NSObject {
             name: BrowserNavigationObserver.historyVisitDidOccurNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(historyTitleDidUpdate(_:)),
+            name: BrowserNavigationObserver.historyTitleDidUpdateNotification,
+            object: nil
+        )
     }
 
     @objc private func historyVisitDidOccur(_ notification: Notification) {
@@ -77,6 +83,16 @@ final class SessionController: NSObject {
         let title =
             notification.userInfo?[BrowserNavigationObserver.historyVisitTitleKey] as? String
         try? sessionStore.recordVisit(url: url, title: title)
+    }
+
+    @objc private func historyTitleDidUpdate(_ notification: Notification) {
+        guard
+            let url = notification.userInfo?[BrowserNavigationObserver.historyVisitURLKey]
+                as? String,
+            let title = notification.userInfo?[BrowserNavigationObserver.historyVisitTitleKey]
+                as? String
+        else { return }
+        try? sessionStore.updateHistoryTitle(url: url, title: title)
     }
 
     func suggestHistory(for query: String) -> [HistoryEntry] {

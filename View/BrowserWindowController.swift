@@ -292,6 +292,62 @@ final class BrowserWindowController: NSWindowController {
         let ui = BrowserUIDelegate(owner: self)
         tab.uiDelegate = ui
         webView.uiDelegate = ui
+
+        tab.urlObservation = webView.observe(\.url, options: [.new]) {
+            [weak self, weak tab] webView, _ in
+            guard let self, let tab, let newURL = webView.url else { return }
+            if tab.url == newURL { return }
+            tab.url = newURL
+            self.refreshAfterNavigation(tab: tab)
+            self.recordHistoryIfAppropriate(for: tab)
+        }
+        tab.titleObservation = webView.observe(\.title, options: [.new]) {
+            [weak self, weak tab] webView, _ in
+            guard let self, let tab else { return }
+            tab.title = webView.title
+            self.refreshSidebar()
+            if let title = webView.title, !title.isEmpty,
+                Self.isRecordableHistoryURL(tab.url)
+            {
+                NotificationCenter.default.post(
+                    name: BrowserNavigationObserver.historyTitleDidUpdateNotification,
+                    object: nil,
+                    userInfo: [
+                        BrowserNavigationObserver.historyVisitURLKey: tab.url.absoluteString,
+                        BrowserNavigationObserver.historyVisitTitleKey: title,
+                    ]
+                )
+            }
+        }
+    }
+
+    func recordHistoryIfAppropriate(for tab: Tab) {
+        let url = tab.url
+        guard Self.isRecordableHistoryURL(url) else { return }
+        if tab.lastRecordedHistoryURL == url { return }
+        if tab.skipHistoryOnNextFinish {
+            tab.skipHistoryOnNextFinish = false
+            tab.lastRecordedHistoryURL = url
+            return
+        }
+        tab.lastRecordedHistoryURL = url
+        NotificationCenter.default.post(
+            name: BrowserNavigationObserver.historyVisitDidOccurNotification,
+            object: nil,
+            userInfo: [
+                BrowserNavigationObserver.historyVisitURLKey: url.absoluteString,
+                BrowserNavigationObserver.historyVisitTitleKey: tab.title as Any,
+            ]
+        )
+    }
+
+    static func isRecordableHistoryURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        guard ["http", "https", "file"].contains(scheme) else { return false }
+        let absolute = url.absoluteString
+        if absolute == "about:blank" { return false }
+        if absolute.hasPrefix("about:") { return false }
+        return true
     }
 
     func openBackgroundTab(

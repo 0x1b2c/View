@@ -109,6 +109,15 @@ public final class SessionStore {
         }
     }
 
+    public func updateHistoryTitle(url: String, title: String) throws {
+        try writer.write { db in
+            try db.execute(
+                sql: "UPDATE history SET title = ? WHERE url = ?",
+                arguments: [title, url]
+            )
+        }
+    }
+
     public func suggestHistory(query: String, limit: Int = 10) throws -> [HistoryEntry] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return [] }
