@@ -283,6 +283,13 @@ extension SessionController: WindowManagerDelegate {
         try? sessionStore.deleteWindow(id: id)
     }
 
+    func windowManager(
+        _ manager: WindowManager,
+        suggestHistoryFor query: String
+    ) -> [HistoryEntry] {
+        suggestHistory(for: query)
+    }
+
     func windowManagerZOrderDidChange(_ manager: WindowManager) {
         for controller in manager.controllers {
             guard let id = controller.persistenceID, let window = controller.window else {

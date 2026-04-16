@@ -12,6 +12,10 @@ protocol WindowManagerDelegate: AnyObject {
         didCloseController controller: BrowserWindowController
     )
     func windowManagerZOrderDidChange(_ manager: WindowManager)
+    func windowManager(
+        _ manager: WindowManager,
+        suggestHistoryFor query: String
+    ) -> [HistoryEntry]
 }
 
 final class WindowManager: NSObject, BrowserWindowControllerDelegate {
@@ -142,5 +146,12 @@ final class WindowManager: NSObject, BrowserWindowControllerDelegate {
 
     func browserWindow(_ controller: BrowserWindowController, didActivateTab tab: Tab) {
         // Forwarded in Task 10.
+    }
+
+    func browserWindow(
+        _ controller: BrowserWindowController,
+        suggestHistoryFor query: String
+    ) -> [HistoryEntry] {
+        delegate?.windowManager(self, suggestHistoryFor: query) ?? []
     }
 }

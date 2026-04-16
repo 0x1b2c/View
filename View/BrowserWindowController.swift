@@ -1,4 +1,5 @@
 import AppKit
+import ViewCore
 import WebKit
 
 protocol BrowserWindowControllerDelegate: AnyObject {
@@ -11,6 +12,10 @@ protocol BrowserWindowControllerDelegate: AnyObject {
         _ controller: BrowserWindowController,
         didActivateTab tab: Tab
     )
+    func browserWindow(
+        _ controller: BrowserWindowController,
+        suggestHistoryFor query: String
+    ) -> [HistoryEntry]
 }
 
 final class BrowserWindowController: NSWindowController {
@@ -63,6 +68,9 @@ final class BrowserWindowController: NSWindowController {
 
         sidebar.delegate = self
         addressBar.delegate = self
+        addressBar.suggestionProvider = { [weak self] query in
+            self?.delegate?.browserWindow(self!, suggestHistoryFor: query) ?? []
+        }
 
         rightStack.orientation = .vertical
         rightStack.spacing = 0
