@@ -64,7 +64,13 @@ final class BrowserWindowController: NSWindowController {
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         splitView.translatesAutoresizingMaskIntoConstraints = false
-        splitView.delegate = self
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(splitViewSubviewsDidResize(_:)),
+            name: NSSplitView.didResizeSubviewsNotification,
+            object: splitView
+        )
 
         sidebar.delegate = self
         addressBar.delegate = self
@@ -326,8 +332,8 @@ final class BrowserWindowController: NSWindowController {
     }
 }
 
-extension BrowserWindowController: NSSplitViewDelegate {
-    func splitViewDidResizeSubviews(_ notification: Notification) {
+extension BrowserWindowController {
+    @objc fileprivate func splitViewSubviewsDidResize(_ notification: Notification) {
         guard !suppressSidebarBroadcast, !isRestoring else { return }
         let width = sidebar.frame.width
         guard width > 0 else { return }
