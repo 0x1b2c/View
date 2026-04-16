@@ -37,6 +37,8 @@ final class BrowserWindowController: NSWindowController {
     private let container = WebContainerView()
     private let splitView = NSSplitView()
     private let rightStack = NSStackView()
+    private let suggestionsList = SuggestionsListView(frame: .zero)
+    private var suggestionsHeightConstraint: NSLayoutConstraint!
 
     private var progressObservation: NSKeyValueObservation?
     private var isRestoring = false
@@ -74,8 +76,12 @@ final class BrowserWindowController: NSWindowController {
 
         sidebar.delegate = self
         addressBar.delegate = self
-        addressBar.suggestionProvider = { [weak self] query in
-            self?.delegate?.browserWindow(self!, suggestHistoryFor: query) ?? []
+        addressBar.suggestionsPresenter = self
+
+        suggestionsList.translatesAutoresizingMaskIntoConstraints = false
+        suggestionsList.isHidden = true
+        suggestionsList.onSelect = { [weak self] entry in
+            self?.selectSuggestion(entry)
         }
 
         rightStack.orientation = .vertical
@@ -91,14 +97,30 @@ final class BrowserWindowController: NSWindowController {
         splitView.setHoldingPriority(NSLayoutConstraint.Priority(250), forSubviewAt: 0)
 
         contentView.addSubview(splitView)
+        contentView.addSubview(suggestionsList, positioned: .above, relativeTo: splitView)
+        suggestionsHeightConstraint = suggestionsList.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             splitView.topAnchor.constraint(equalTo: contentView.topAnchor),
             splitView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             splitView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
+            suggestionsList.topAnchor.constraint(
+                equalTo: addressBar.bottomAnchor, constant: 2),
+            suggestionsList.leadingAnchor.constraint(
+                equalTo: addressBar.leadingAnchor, constant: 8),
+            suggestionsList.trailingAnchor.constraint(
+                equalTo: addressBar.trailingAnchor, constant: -8),
+            suggestionsHeightConstraint,
         ])
         splitView.setPosition(260, ofDividerAt: 0)
+    }
+
+    private func selectSuggestion(_ entry: HistoryEntry) {
+        guard let url = URL(string: entry.url) else { return }
+        addressBar.commitSuggestionText(entry.url)
+        hideSuggestions()
+        addressBar.delegate?.addressBar(addressBar, didSubmitURL: url)
     }
 
     // MARK: - Address bar API
@@ -329,6 +351,35 @@ final class BrowserWindowController: NSWindowController {
             )
         }
         sidebar.reloadItems(items, selectedIndex: activeTabIndex)
+    }
+}
+
+extension BrowserWindowController: AddressBarSuggestionsPresenter {
+    func suggestions(for query: String) -> [HistoryEntry] {
+        delegate?.browserWindow(self, suggestHistoryFor: query) ?? []
+    }
+
+    func showSuggestions(_ items: [HistoryEntry]) {
+        suggestionsList.setItems(items)
+        suggestionsList.isHidden = false
+        suggestionsHeightConstraint.constant = suggestionsList.intrinsicHeight
+    }
+
+    func hideSuggestions() {
+        suggestionsList.clear()
+        suggestionsHeightConstraint.constant = 0
+    }
+
+    func moveSuggestionHighlight(by delta: Int) {
+        suggestionsList.moveHighlight(by: delta)
+    }
+
+    var highlightedSuggestion: HistoryEntry? {
+        suggestionsList.highlightedEntry
+    }
+
+    var suggestionsAreShown: Bool {
+        !suggestionsList.isHidden && suggestionsList.itemCount > 0
     }
 }
 

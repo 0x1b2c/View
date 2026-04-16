@@ -5,14 +5,21 @@ protocol AddressBarViewDelegate: AnyObject {
     func addressBar(_ addressBar: AddressBarView, didSubmitURL url: URL)
 }
 
+protocol AddressBarSuggestionsPresenter: AnyObject {
+    func suggestions(for query: String) -> [HistoryEntry]
+    func showSuggestions(_ items: [HistoryEntry])
+    func hideSuggestions()
+    func moveSuggestionHighlight(by delta: Int)
+    var highlightedSuggestion: HistoryEntry? { get }
+    var suggestionsAreShown: Bool { get }
+}
+
 final class AddressBarView: NSView {
     weak var delegate: AddressBarViewDelegate?
-
-    var suggestionProvider: ((String) -> [HistoryEntry])?
+    weak var suggestionsPresenter: AddressBarSuggestionsPresenter?
 
     private let textField = NSTextField()
     private let progressBar = ProgressBarView()
-    private let suggestions = SuggestionsPopover()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -37,8 +44,6 @@ final class AddressBarView: NSView {
 
         addSubview(textField)
         addSubview(progressBar)
-
-        setUpSuggestions()
         NSLayoutConstraint.activate([
             textField.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
@@ -55,27 +60,22 @@ final class AddressBarView: NSView {
         progressBar.setProgress(value, animated: animated)
     }
 
-    private func setUpSuggestions() {
-        suggestions.onSelect = { [weak self] entry in
-            guard let self, let url = URL(string: entry.url) else { return }
-            self.textField.stringValue = entry.url
-            self.delegate?.addressBar(self, didSubmitURL: url)
-        }
+    func commitSuggestionText(_ text: String) {
+        textField.stringValue = text
     }
 
     private func updateSuggestions() {
-        guard let provider = suggestionProvider else { return }
+        guard let presenter = suggestionsPresenter else { return }
         let query = textField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else {
-            suggestions.hide()
+            presenter.hideSuggestions()
             return
         }
-        let items = provider(query)
-        suggestions.setItems(items)
+        let items = presenter.suggestions(for: query)
         if items.isEmpty {
-            suggestions.hide()
+            presenter.hideSuggestions()
         } else {
-            suggestions.show(relativeTo: textField)
+            presenter.showSuggestions(items)
         }
     }
 
@@ -90,18 +90,19 @@ final class AddressBarView: NSView {
     }
 
     fileprivate func submit() {
-        if let entry = suggestions.highlightedEntry, suggestions.isShown,
+        if let presenter = suggestionsPresenter, presenter.suggestionsAreShown,
+            let entry = presenter.highlightedSuggestion,
             let url = URL(string: entry.url)
         {
             textField.stringValue = entry.url
-            suggestions.hide()
+            presenter.hideSuggestions()
             delegate?.addressBar(self, didSubmitURL: url)
             return
         }
         let raw = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return }
         guard let url = Self.resolve(raw) else { return }
-        suggestions.hide()
+        suggestionsPresenter?.hideSuggestions()
         delegate?.addressBar(self, didSubmitURL: url)
     }
 
@@ -150,6 +151,10 @@ extension AddressBarView: NSTextFieldDelegate {
         updateSuggestions()
     }
 
+    func controlTextDidEndEditing(_ obj: Notification) {
+        suggestionsPresenter?.hideSuggestions()
+    }
+
     func control(
         _ control: NSControl,
         textView: NSTextView,
@@ -160,20 +165,20 @@ extension AddressBarView: NSTextFieldDelegate {
             submit()
             return true
         case #selector(NSResponder.moveDown(_:)):
-            if suggestions.isShown {
-                suggestions.moveHighlight(by: 1)
+            if suggestionsPresenter?.suggestionsAreShown == true {
+                suggestionsPresenter?.moveSuggestionHighlight(by: 1)
                 return true
             }
             return false
         case #selector(NSResponder.moveUp(_:)):
-            if suggestions.isShown {
-                suggestions.moveHighlight(by: -1)
+            if suggestionsPresenter?.suggestionsAreShown == true {
+                suggestionsPresenter?.moveSuggestionHighlight(by: -1)
                 return true
             }
             return false
         case #selector(NSResponder.cancelOperation(_:)):
-            if suggestions.isShown {
-                suggestions.hide()
+            if suggestionsPresenter?.suggestionsAreShown == true {
+                suggestionsPresenter?.hideSuggestions()
                 return true
             }
             return false

@@ -1,99 +1,71 @@
 import AppKit
 import ViewCore
 
-final class SuggestionsPopover: NSObject {
-    private let popover = NSPopover()
-    private let controller: SuggestionsViewController
-    private weak var anchorView: NSView?
-
+final class SuggestionsListView: NSView {
     var onSelect: ((HistoryEntry) -> Void)?
-
-    var isShown: Bool { popover.isShown }
-    var highlightedEntry: HistoryEntry? { controller.highlightedEntry }
-    var itemCount: Int { controller.items.count }
-
-    override init() {
-        self.controller = SuggestionsViewController()
-        super.init()
-        popover.behavior = .transient
-        popover.contentViewController = controller
-        controller.onClick = { [weak self] entry in
-            self?.onSelect?(entry)
-            self?.hide()
-        }
-    }
-
-    func setItems(_ items: [HistoryEntry]) {
-        controller.items = items
-        controller.reload()
-    }
-
-    func show(relativeTo view: NSView) {
-        guard !controller.items.isEmpty else {
-            hide()
-            return
-        }
-        anchorView = view
-        if !popover.isShown {
-            popover.show(
-                relativeTo: view.bounds, of: view, preferredEdge: .minY)
-        }
-    }
-
-    func hide() {
-        if popover.isShown { popover.close() }
-        controller.clearHighlight()
-    }
-
-    func moveHighlight(by delta: Int) {
-        controller.moveHighlight(by: delta)
-    }
-}
-
-final class SuggestionsViewController: NSViewController {
-    var items: [HistoryEntry] = []
-    var onClick: ((HistoryEntry) -> Void)?
 
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
+    private var items: [HistoryEntry] = []
     private var highlightedRow: Int = -1
+
+    private static let rowHeight: CGFloat = 36
+    private static let maxRows = 10
 
     var highlightedEntry: HistoryEntry? {
         guard items.indices.contains(highlightedRow) else { return nil }
         return items[highlightedRow]
     }
 
-    override func loadView() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 220))
-        container.translatesAutoresizingMaskIntoConstraints = false
+    var itemCount: Int { items.count }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setUp()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setUp() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.borderWidth = 1
+        layer?.cornerRadius = 6
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("s"))
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
         tableView.headerView = nil
-        tableView.rowSizeStyle = .medium
-        tableView.intercellSpacing = NSSize(width: 0, height: 2)
+        tableView.rowSizeStyle = .custom
+        tableView.intercellSpacing = NSSize(width: 0, height: 0)
         tableView.allowsMultipleSelection = false
         tableView.allowsEmptySelection = true
+        tableView.refusesFirstResponder = true
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
         tableView.action = #selector(rowClicked)
+        tableView.backgroundColor = .clear
+        tableView.selectionHighlightStyle = .regular
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(scrollView)
+        addSubview(scrollView)
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
         ])
-        self.view = container
     }
 
-    func reload() {
+    func setItems(_ newItems: [HistoryEntry]) {
+        items = newItems
         tableView.reloadData()
         if !items.isEmpty {
             highlightedRow = 0
@@ -101,7 +73,14 @@ final class SuggestionsViewController: NSViewController {
         } else {
             highlightedRow = -1
         }
-        adjustSize()
+        isHidden = items.isEmpty
+    }
+
+    func clear() {
+        items = []
+        highlightedRow = -1
+        tableView.reloadData()
+        isHidden = true
     }
 
     func moveHighlight(by delta: Int) {
@@ -112,30 +91,27 @@ final class SuggestionsViewController: NSViewController {
         tableView.scrollRowToVisible(next)
     }
 
-    func clearHighlight() {
-        highlightedRow = -1
-        tableView.deselectAll(nil)
+    var intrinsicHeight: CGFloat {
+        let visible = min(items.count, Self.maxRows)
+        return CGFloat(visible) * Self.rowHeight + 8
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: intrinsicHeight)
     }
 
     @objc private func rowClicked() {
         let row = tableView.clickedRow
         guard items.indices.contains(row) else { return }
-        onClick?(items[row])
-    }
-
-    private func adjustSize() {
-        let rowHeight: CGFloat = 36
-        let maxRows = 10
-        let visible = min(items.count, maxRows)
-        let height = max(CGFloat(visible) * rowHeight, 36)
-        view.setFrameSize(NSSize(width: 520, height: height))
-        preferredContentSize = view.frame.size
+        onSelect?(items[row])
     }
 }
 
-extension SuggestionsViewController: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        items.count
+extension SuggestionsListView: NSTableViewDataSource, NSTableViewDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int { items.count }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        Self.rowHeight
     }
 
     func tableView(
@@ -153,10 +129,6 @@ extension SuggestionsViewController: NSTableViewDataSource, NSTableViewDelegate 
             urlLabel.stringValue = entry.url
         }
         return cell
-    }
-
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        36
     }
 
     private static func makeCell(
@@ -192,12 +164,5 @@ extension SuggestionsViewController: NSTableViewDataSource, NSTableViewDelegate 
         ])
 
         return cell
-    }
-
-    func tableView(
-        _ tableView: NSTableView,
-        selectionIndexesForProposedSelection proposedSelectionIndexes: IndexSet
-    ) -> IndexSet {
-        proposedSelectionIndexes
     }
 }
