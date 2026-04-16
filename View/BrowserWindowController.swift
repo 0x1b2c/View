@@ -42,7 +42,7 @@ final class BrowserWindowController: NSWindowController {
 
     private var progressObservation: NSKeyValueObservation?
     private var isRestoring = false
-    private var suppressSidebarBroadcast = false
+    private var suppressSidebarBroadcast = true
 
     init(initialFrame: NSRect) {
         let window = SilentBrowserWindow(
