@@ -1,0 +1,3 @@
+View:
+	- %1 Favicon 缓存需要做正确实现：持久化到磁盘（不是内存 dict）、按 origin/URL 做 HTTP 缓存语义、可能走 WKWebView 自己的网络栈而不是独立 URLSession。当前 MVP 是内存 dict 按 origin 去重，每次启动重拉，不是正确方案
+	- %2 JS 对话框 (alert/confirm/prompt) 现在是静默 stub（alert 空，confirm 返回 false，prompt 返回 nil）。未来做成安静的页面顶部横条通知（类似 Chrome），而不是模态弹窗
