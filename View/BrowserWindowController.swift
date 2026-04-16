@@ -16,6 +16,9 @@ protocol BrowserWindowControllerDelegate: AnyObject {
 final class BrowserWindowController: NSWindowController {
     static let tabsDidChangeNotification = Notification.Name(
         "BrowserWindowController.tabsDidChange")
+    static let sidebarWidthDidChangeNotification = Notification.Name(
+        "BrowserWindowController.sidebarWidthDidChange")
+    static let sidebarWidthUserInfoKey = "width"
 
     weak var delegate: BrowserWindowControllerDelegate?
     var persistenceID: Int64?
@@ -32,6 +35,7 @@ final class BrowserWindowController: NSWindowController {
 
     private var progressObservation: NSKeyValueObservation?
     private var isRestoring = false
+    private var suppressSidebarBroadcast = false
 
     init(initialFrame: NSRect) {
         let window = SilentBrowserWindow(
@@ -55,6 +59,7 @@ final class BrowserWindowController: NSWindowController {
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         splitView.translatesAutoresizingMaskIntoConstraints = false
+        splitView.delegate = self
 
         sidebar.delegate = self
         addressBar.delegate = self
@@ -282,6 +287,16 @@ final class BrowserWindowController: NSWindowController {
         isRestoring = false
     }
 
+    func applySidebarWidth(_ width: CGFloat) {
+        suppressSidebarBroadcast = true
+        splitView.setPosition(width, ofDividerAt: 0)
+        suppressSidebarBroadcast = false
+    }
+
+    var currentSidebarWidth: CGFloat {
+        sidebar.frame.width
+    }
+
     private func postTabsDidChange() {
         guard !isRestoring else { return }
         NotificationCenter.default.post(name: Self.tabsDidChangeNotification, object: self)
@@ -300,6 +315,19 @@ final class BrowserWindowController: NSWindowController {
             )
         }
         sidebar.reloadItems(items, selectedIndex: activeTabIndex)
+    }
+}
+
+extension BrowserWindowController: NSSplitViewDelegate {
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard !suppressSidebarBroadcast, !isRestoring else { return }
+        let width = sidebar.frame.width
+        guard width > 0 else { return }
+        NotificationCenter.default.post(
+            name: Self.sidebarWidthDidChangeNotification,
+            object: self,
+            userInfo: [Self.sidebarWidthUserInfoKey: width]
+        )
     }
 }
 

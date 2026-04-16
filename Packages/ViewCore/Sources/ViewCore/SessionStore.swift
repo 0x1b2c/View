@@ -65,7 +65,37 @@ public final class SessionStore {
             }
         }
 
+        migrator.registerMigration("v2: preferences") { db in
+            try db.create(table: "preferences") { t in
+                t.column("key", .text).primaryKey()
+                t.column("value", .text).notNull()
+            }
+        }
+
         return migrator
+    }
+
+    // MARK: - Preferences
+
+    public func getPreference(_ key: String) throws -> String? {
+        try reader.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT value FROM preferences WHERE key = ?",
+                arguments: [key]
+            )
+        }
+    }
+
+    public func setPreference(_ key: String, value: String) throws {
+        try writer.write { db in
+            try db.execute(
+                sql:
+                    "INSERT INTO preferences(key, value) VALUES(?, ?) "
+                    + "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                arguments: [key, value]
+            )
+        }
     }
 
     // MARK: - Session lifecycle

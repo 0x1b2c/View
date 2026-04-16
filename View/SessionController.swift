@@ -55,6 +55,36 @@ final class SessionController: NSObject {
             name: BrowserWindowController.tabsDidChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sidebarWidthDidChange(_:)),
+            name: BrowserWindowController.sidebarWidthDidChangeNotification,
+            object: nil
+        )
+    }
+
+    private static let sidebarWidthPreferenceKey = "sidebar_width"
+
+    func currentSidebarWidth() -> CGFloat {
+        if let raw = try? sessionStore.getPreference(Self.sidebarWidthPreferenceKey),
+            let value = Double(raw)
+        {
+            return CGFloat(value)
+        }
+        return 300
+    }
+
+    @objc private func sidebarWidthDidChange(_ notification: Notification) {
+        guard
+            let origin = notification.object as? BrowserWindowController,
+            let width = notification.userInfo?[BrowserWindowController.sidebarWidthUserInfoKey]
+                as? CGFloat
+        else { return }
+        try? sessionStore.setPreference(
+            Self.sidebarWidthPreferenceKey, value: String(Double(width)))
+        for controller in windowManager.controllers where controller !== origin {
+            controller.applySidebarWidth(width)
+        }
     }
 
     var manager: WindowManager { windowManager }
@@ -216,6 +246,7 @@ extension SessionController: WindowManagerDelegate {
         _ manager: WindowManager,
         didOpenController controller: BrowserWindowController
     ) {
+        controller.applySidebarWidth(currentSidebarWidth())
         guard controller.persistenceID == nil else { return }
         try? persistNewWindow(controller)
         for tab in controller.tabs where tab.persistenceID == nil {
